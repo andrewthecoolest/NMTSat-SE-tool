@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 1,
+  "objects": [
+    {
+      "id": "30c1ukg3",
+      "name": "Solar Array",
+      "type": "module",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "sr7p5xv2",
+      "name": "EPS",
+      "type": "subsystem",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "b9ci7jdy",
+      "name": "C&DH",
+      "type": "subsystem",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "lvxfd8s0",
+      "name": "Comms",
+      "type": "subsystem",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "w61kauqe",
+      "name": "PDU",
+      "type": "module",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "k0jf0h63",
+      "name": "Battery",
+      "type": "module",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "ksyz2u3l",
+      "name": "OBC",
+      "type": "module",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "7hczhmff",
+      "name": "Radio",
+      "type": "module",
+      "color": "#334155",
+      "description": ""
+    }
+  ],
+  "placements": [
+    {
+      "id": "ked3mbg9",
+      "objectId": "30c1ukg3",
+      "sheetId": "root",
+      "x": 2,
+      "y": 4,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "mcckm8p0",
+      "objectId": "sr7p5xv2",
+      "sheetId": "root",
+      "x": 14,
+      "y": 3,
+      "w": 8,
+      "h": 5
+    },
+    {
+      "id": "pfk9i12x",
+      "objectId": "b9ci7jdy",
+      "sheetId": "root",
+      "x": 30,
+      "y": 3,
+      "w": 8,
+      "h": 5
+    },
+    {
+      "id": "7x8xptzz",
+      "objectId": "lvxfd8s0",
+      "sheetId": "root",
+      "x": 30,
+      "y": 14,
+      "w": 8,
+      "h": 5
+    },
+    {
+      "id": "aei8x76u",
+      "objectId": "w61kauqe",
+      "sheetId": "sr7p5xv2",
+      "x": 12,
+      "y": 4,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "fqjowakv",
+      "objectId": "k0jf0h63",
+      "sheetId": "sr7p5xv2",
+      "x": 12,
+      "y": 12,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "4brpicf4",
+      "objectId": "ksyz2u3l",
+      "sheetId": "b9ci7jdy",
+      "x": 12,
+      "y": 6,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "c5tdtgke",
+      "objectId": "7hczhmff",
+      "sheetId": "lvxfd8s0",
+      "x": 14,
+      "y": 6,
+      "w": 6,
+      "h": 3
+    }
+  ],
+  "unknownLoads": [
+    {
+      "id": "uezv5zgd",
+      "sheetId": "root",
+      "x": 4,
+      "y": 12
+    }
+  ],
+  "wires": [
+    {
+      "id": "sqjsrgvc",
+      "name": "POWER",
+      "color": "#dc2626",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "2p7gpyg3",
+      "name": "CHARGE",
+      "color": "#ea580c",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "cbg6ykof",
+      "name": "UART TX",
+      "color": "#2563eb",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "pqksvjww",
+      "name": "GND",
+      "color": "#4b5563",
+      "description": "",
+      "direction": "bidirectional"
+    },
+    {
+      "id": "8jbxxzpy",
+      "name": "TEMP",
+      "color": "#16a34a",
+      "description": "",
+      "direction": "directed"
+    }
+  ],
+  "segments": [
+    {
+      "id": "8mw29lfu",
+      "wireId": "sqjsrgvc",
+      "sheetId": "root",
+      "from": {
+        "kind": "module",
+        "placementId": "ked3mbg9"
+      },
+      "to": {
+        "kind": "port",
+        "placementId": "mcckm8p0",
+        "viaId": "tcjzmaqn"
+      }
+    },
+    {
+      "id": "j1i3771h",
+      "wireId": "sqjsrgvc",
+      "sheetId": "sr7p5xv2",
+      "from": {
+        "kind": "via",
+        "viaId": "tcjzmaqn"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "aei8x76u"
+      }
+    },
+    {
+      "id": "8g8ejec5",
+      "wireId": "2p7gpyg3",
+      "sheetId": "sr7p5xv2",
+      "from": {
+        "kind": "module",
+        "placementId": "aei8x76u"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "fqjowakv"
+      }
+    },
+    {
+      "id": "yi7wpexv",
+      "wireId": "cbg6ykof",
+      "sheetId": "b9ci7jdy",
+      "from": {
+        "kind": "module",
+        "placementId": "4brpicf4"
+      },
+      "to": {
+        "kind": "via",
+        "viaId": "ykhsa21n"
+      }
+    },
+    {
+      "id": "49pg9mxo",
+      "wireId": "cbg6ykof",
+      "sheetId": "root",
+      "from": {
+        "kind": "port",
+        "placementId": "pfk9i12x",
+        "viaId": "ykhsa21n"
+      },
+      "to": {
+        "kind": "port",
+        "placementId": "7x8xptzz",
+        "viaId": "5qf6hk0w"
+      }
+    },
+    {
+      "id": "6smo50q1",
+      "wireId": "cbg6ykof",
+      "sheetId": "lvxfd8s0",
+      "from": {
+        "kind": "via",
+        "viaId": "5qf6hk0w"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "c5tdtgke"
+      }
+    },
+    {
+      "id": "kjhdkuo0",
+      "wireId": "pqksvjww",
+      "sheetId": "root",
+      "from": {
+        "kind": "port",
+        "placementId": "mcckm8p0",
+        "viaId": "ttsczuto"
+      },
+      "to": {
+        "kind": "port",
+        "placementId": "pfk9i12x",
+        "viaId": "jz72ctsy"
+      }
+    },
+    {
+      "id": "a2t833dl",
+      "wireId": "pqksvjww",
+      "sheetId": "sr7p5xv2",
+      "from": {
+        "kind": "via",
+        "viaId": "ttsczuto"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "aei8x76u"
+      }
+    },
+    {
+      "id": "177qp23q",
+      "wireId": "8jbxxzpy",
+      "sheetId": "root",
+      "from": {
+        "kind": "module",
+        "placementId": "ked3mbg9"
+      },
+      "to": {
+        "kind": "unknown",
+        "unknownId": "uezv5zgd"
+      }
+    }
+  ],
+  "vias": [
+    {
+      "id": "tcjzmaqn",
+      "wireId": "sqjsrgvc",
+      "subsystemId": "sr7p5xv2",
+      "direction": "in",
+      "x": 2,
+      "y": 5,
+      "portSide": "left",
+      "portOffset": 0.5
+    },
+    {
+      "id": "ykhsa21n",
+      "wireId": "cbg6ykof",
+      "subsystemId": "b9ci7jdy",
+      "direction": "out",
+      "x": 26,
+      "y": 7,
+      "portSide": "bottom",
+      "portOffset": 0.5
+    },
+    {
+      "id": "5qf6hk0w",
+      "wireId": "cbg6ykof",
+      "subsystemId": "lvxfd8s0",
+      "direction": "in",
+      "x": 4,
+      "y": 7,
+      "portSide": "top",
+      "portOffset": 0.5
+    },
+    {
+      "id": "ttsczuto",
+      "wireId": "pqksvjww",
+      "subsystemId": "sr7p5xv2",
+      "direction": "bi",
+      "x": 26,
+      "y": 5,
+      "portSide": "right",
+      "portOffset": 0.5
+    },
+    {
+      "id": "jz72ctsy",
+      "wireId": "pqksvjww",
+      "subsystemId": "b9ci7jdy",
+      "direction": "bi",
+      "x": 2,
+      "y": 5,
+      "portSide": "left",
+      "portOffset": 0.5
+    }
+  ]
+}

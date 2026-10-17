@@ -1,0 +1,529 @@
+// App wiring: state, history, pointer/keyboard handling, toolbar.
+import { apply, byId, emptyDoc, validate, wireByName } from './model.js';
+import { sheetName, sheetPath, status } from './derive.js';
+import { G, nearestSide, renderSheet } from './view.js';
+import { flushEdits, h, renderPanel } from './panel.js';
+import { localStore } from './storage.js';
+
+const WIRE_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#4b5563'];
+
+const svg = document.getElementById('canvas');
+const panelEl = document.getElementById('panel');
+const crumbsEl = document.getElementById('crumbs');
+const statusEl = document.getElementById('status');
+const toastEl = document.getElementById('toast');
+const objectDialog = document.getElementById('objectDialog');
+const wireDialog = document.getElementById('wireDialog');
+
+let doc = emptyDoc();
+let past = [];
+let future = [];
+let path = ['root'];       // sheet ids from root to the current sheet
+let tool = 'select';
+let selection = null;      // { kind: 'placement' | 'unknown' | 'segment' | 'via', id }
+let subject = null;        // what the info view shows
+let preview = null;        // document shown instead of `doc` while dragging
+let drag = null;
+let lastClick = {};        // for double-click detection
+const views = {};          // sheet id -> { x, y, k }
+
+const currentSheet = () => path[path.length - 1];
+const view = () => (views[currentSheet()] ||= { x: 60, y: 60, k: 1 });
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// ---- history ----------------------------------------------------------------
+
+function setDoc(next) {
+  past.push(doc);
+  if (past.length > 200) past.shift();
+  future = [];
+  doc = next;
+  localStore.save(doc);
+  render();
+}
+
+function commit(cmd, prefix = '') {
+  const r = apply(doc, cmd);
+  if (r.error) {
+    toast(prefix + r.error);
+    render();
+    return null;
+  }
+  setDoc(r.doc);
+  return r;
+}
+
+// Commit a deletion, first asking when the question for the number of lost segments is non-empty.
+function commitConfirmed(cmd, question) {
+  const r = apply(doc, cmd);
+  if (r.error) return toast(r.error);
+  const q = question(doc.segments.length - r.doc.segments.length);
+  if (q && !confirm(q)) return;
+  setDoc(r.doc);
+}
+
+function undo() {
+  if (!past.length) return;
+  future.push(doc);
+  doc = past.pop();
+  localStore.save(doc);
+  render();
+}
+
+function redo() {
+  if (!future.length) return;
+  past.push(doc);
+  doc = future.pop();
+  localStore.save(doc);
+  render();
+}
+
+function replaceDoc(next) {
+  path = ['root'];
+  selection = null;
+  subject = null;
+  setDoc(next);
+}
+
+// ---- rendering --------------------------------------------------------------
+
+const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias' };
+
+function render() {
+  // Leave sheets that no longer exist (e.g. after undo or delete).
+  const gone = path.findIndex((id, i) => i > 0 && byId(doc.objects, id)?.type !== 'subsystem');
+  if (gone > 0) path = path.slice(0, gone);
+  if (selection && !byId(doc[LISTS[selection.kind]], selection.id)) selection = null;
+
+  renderCanvas();
+  renderPanel(panelEl, panelApp());
+  if (!panelEl.open) subject = null;
+
+  crumbsEl.replaceChildren(...path.flatMap((id, i) => {
+    const item = i === path.length - 1
+      ? h('span', {}, sheetName(doc, id))
+      : h('button', { onclick: () => goTo(path.slice(0, i + 1)) }, sheetName(doc, id));
+    return i ? [h('span', { class: 'sep' }, '›'), item] : [item];
+  }));
+
+  const s = status(doc);
+  statusEl.textContent = `${plural(s.unknownLoads, 'unknown load')} · ${plural(s.openVias, 'open via')}`;
+
+  document.getElementById('objectNames').replaceChildren(...doc.objects.map((o) => h('option', { value: o.name })));
+  document.getElementById('wireNames').replaceChildren(...doc.wires.map((w) => h('option', { value: w.name })));
+  document.getElementById('undo').disabled = !past.length;
+  document.getElementById('redo').disabled = !future.length;
+}
+
+function renderCanvas() {
+  let overlay = '';
+  if (drag?.type === 'box') {
+    const r = boxFrom(drag.start, drag.end);
+    overlay = `<rect class="ghost" x="${r.x * G}" y="${r.y * G}" width="${r.w * G}" height="${r.h * G}"/>`;
+  }
+  if (drag?.type === 'wire') {
+    overlay = `<line class="ghost" x1="${drag.start.x}" y1="${drag.start.y}" x2="${drag.end.x}" y2="${drag.end.y}"/>`;
+  }
+  svg.innerHTML = renderSheet(preview || doc, {
+    sheetId: currentSheet(),
+    parentName: sheetName(doc, path[path.length - 2] ?? 'root'),
+    selection,
+    view: view(),
+    width: svg.clientWidth,
+    height: svg.clientHeight,
+    overlay,
+  });
+}
+
+function panelApp() {
+  return {
+    doc, subject, sheetId: currentSheet(), commit, toast,
+    preview: (cmd) => {
+      preview = cmd ? apply(doc, cmd).doc ?? null : null;
+      renderCanvas();
+    },
+    open: (s) => { subject = s; render(); },
+    close: () => panelEl.close(),
+    refresh: () => render(),
+    goToSheet: (id) => {
+      panelEl.close();
+      goTo(sheetPath(doc, id) ?? ['root']);
+    },
+    removePlacement, deleteEverywhere, deleteSegment, deleteUnknown,
+  };
+}
+
+// Closing the info view (×, Esc, or clicking outside it) keeps any unsaved edits.
+panelEl.addEventListener('close', () => {
+  subject = null;
+  preview = null;
+  flushEdits(panelEl);
+  render();
+});
+panelEl.addEventListener('pointerdown', (e) => {
+  if (e.target === panelEl) panelEl.close();
+});
+
+let toastTimer;
+function toast(message) {
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (toastEl.hidden = true), 5000);
+}
+
+// ---- navigation & deletion --------------------------------------------------
+
+function goTo(newPath) {
+  path = newPath;
+  selection = null;
+  render();
+}
+
+function removePlacement(id) {
+  const p = byId(doc.placements, id);
+  const obj = byId(doc.objects, p.objectId);
+  if (doc.placements.filter((x) => x.objectId === obj.id).length === 1) return deleteEverywhere(obj.id);
+  commitConfirmed({ type: 'removePlacement', id }, (lost) =>
+    lost ? `Remove ${obj.name} from this sheet? This also deletes ${plural(lost, 'wire segment')}.` : null);
+}
+
+function deleteEverywhere(objectId) {
+  const obj = byId(doc.objects, objectId);
+  commitConfirmed({ type: 'deleteObject', id: objectId }, (lost) =>
+    `Delete ${obj.name} everywhere${obj.type === 'subsystem' ? ', including everything on its sheet' : ''}?` +
+    (lost ? ` ${plural(lost, 'wire segment')} will be deleted too.` : ''));
+}
+
+function deleteSegment(id) {
+  const wire = byId(doc.wires, byId(doc.segments, id).wireId);
+  const where = wire.direction === 'directed' ? 'downstream of it' : 'cut off by it';
+  commitConfirmed({ type: 'deleteSegment', id }, (lost) =>
+    lost > 1 ? `Delete this segment and the ${plural(lost - 1, 'segment')} ${where}?` : null);
+}
+
+function deleteUnknown(id) {
+  commitConfirmed({ type: 'deleteUnknown', id }, (lost) =>
+    lost ? `Delete this unknown load and ${plural(lost, 'wire segment')}?` : null);
+}
+
+function deleteSelection() {
+  if (!selection) return;
+  const { kind, id } = selection;
+  if (kind === 'placement') removePlacement(id);
+  if (kind === 'unknown') deleteUnknown(id);
+  if (kind === 'segment') deleteSegment(id);
+  if (kind === 'via') toast('Vias follow their segments. Delete a segment instead.');
+}
+
+// ---- dialogs ----------------------------------------------------------------
+
+function ask(dialog, values) {
+  const form = dialog.querySelector('form');
+  form.reset();
+  for (const [k, v] of Object.entries(values)) form.elements[k].value = v;
+  dialog.returnValue = '';
+  dialog.showModal();
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok' ? Object.fromEntries(new FormData(form)) : null), { once: true });
+  });
+}
+
+function syncWireDialog() {
+  const form = wireDialog.querySelector('form');
+  const existing = wireByName(doc, form.elements.name.value);
+  form.elements.color.disabled = form.elements.direction.disabled = !!existing;
+  if (existing) {
+    form.elements.color.value = existing.color;
+    form.elements.direction.value = existing.direction;
+  }
+  document.getElementById('wireHint').textContent = existing
+    ? `Extends the existing ${existing.direction} wire ${existing.name}.`
+    : 'Creates a new wire.';
+}
+wireDialog.querySelector('[name=name]').addEventListener('input', syncWireDialog);
+
+async function askWire(name) {
+  const pending = ask(wireDialog, { name, color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], direction: 'directed' });
+  syncWireDialog();
+  return pending;
+}
+
+// ---- pointer interaction ----------------------------------------------------
+
+function toWorld(e) {
+  const r = svg.getBoundingClientRect();
+  const v = view();
+  return { x: (e.clientX - r.left - v.x) / v.k, y: (e.clientY - r.top - v.y) / v.k };
+}
+
+function elementAt(e) {
+  const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-kind]');
+  return el && svg.contains(el) ? el : null;
+}
+
+// Grid rectangle spanned by a drag; a plain click gives a default-sized box.
+function boxFrom(a, b) {
+  const x = Math.round(Math.min(a.x, b.x) / G);
+  const y = Math.round(Math.min(a.y, b.y) / G);
+  const w = Math.round(Math.max(a.x, b.x) / G) - x;
+  const h = Math.round(Math.max(a.y, b.y) / G) - y;
+  return w >= 1 && h >= 1 ? { x, y, w, h } : { x, y, w: 6, h: 3 };
+}
+
+// What a wire end dropped on `el` at world point `pt` refers to.
+function targetAt(el, pt) {
+  const kind = el?.dataset.kind;
+  const id = el?.dataset.id;
+  if (kind === 'placement' || kind === 'info' || kind === 'resize') {
+    const p = byId(doc.placements, id);
+    if (byId(doc.objects, p.objectId).type === 'module') return { kind: 'module', placementId: id };
+    return { kind: 'subsystem', placementId: id, ...nearestSide(p, pt) };
+  }
+  if (kind === 'port') return { kind: 'port', placementId: el.dataset.placement, viaId: id };
+  if (kind === 'unknown') return { kind: 'unknown', unknownId: id };
+  if (kind === 'via') return { kind: 'via', viaId: id };
+  if (kind === 'boundary') return { kind: 'boundary', x: Math.round(pt.x / G), y: Math.round(pt.y / G) };
+  return { kind: 'newUnknown', x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) };
+}
+
+const targetKey = (t) => t.placementId || t.unknownId || t.viaId || t.kind;
+
+function startSelect(el, pt) {
+  const { kind, id } = el.dataset;
+  const gx = pt.x / G;
+  const gy = pt.y / G;
+  // Double-click detected by hand: re-rendering on the first click replaces
+  // the element, so the browser's dblclick event is unreliable here.
+  const now = Date.now();
+  const double = lastClick.id === id && now - lastClick.time < 400;
+  lastClick = { id, time: now };
+
+  if (kind === 'info') {
+    selection = { kind: 'placement', id };
+    subject = { kind: 'object', id: byId(doc.placements, id).objectId, placementId: id };
+    render();
+  } else if (kind === 'resize') {
+    drag = { type: 'resize', id };
+  } else if (kind === 'placement') {
+    const p = byId(doc.placements, id);
+    if (double && byId(doc.objects, p.objectId).type === 'subsystem') return goTo([...path, p.objectId]);
+    selection = { kind, id };
+    drag = { type: 'move', id, dx: gx - p.x, dy: gy - p.y };
+    render();
+  } else if (kind === 'unknown') {
+    const u = byId(doc.unknownLoads, id);
+    selection = { kind, id };
+    if (double) subject = { kind: 'unknown', id };
+    else drag = { type: 'moveUnknown', id, dx: gx - u.x, dy: gy - u.y };
+    render();
+  } else if (kind === 'via' || kind === 'port') {
+    const via = byId(doc.vias, id);
+    selection = kind === 'via' ? { kind, id } : null;
+    if (double) subject = { kind: 'wire', id: via.wireId };
+    else if (kind === 'via') drag = { type: 'moveVia', id };
+    else drag = { type: 'movePort', id, placementId: el.dataset.placement };
+    render();
+  } else if (kind === 'segment') {
+    selection = { kind, id };
+    subject = { kind: 'wire', id: byId(doc.segments, id).wireId, segmentId: id };
+    render();
+  }
+}
+
+function dragCommand(d, pt) {
+  const gx = pt.x / G;
+  const gy = pt.y / G;
+  if (d.type === 'move') return { type: 'movePlacement', id: d.id, x: gx - d.dx, y: gy - d.dy };
+  if (d.type === 'resize') {
+    const p = byId(doc.placements, d.id);
+    return { type: 'movePlacement', id: d.id, w: gx - p.x, h: gy - p.y };
+  }
+  if (d.type === 'moveUnknown') return { type: 'moveUnknown', id: d.id, x: gx - d.dx, y: gy - d.dy };
+  if (d.type === 'moveVia') return { type: 'moveVia', id: d.id, x: gx, y: gy };
+  if (d.type === 'movePort') return { type: 'movePort', id: d.id, ...nearestSide(byId(doc.placements, d.placementId), pt) };
+  return null;
+}
+
+svg.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 && e.button !== 1) return;
+  const el = e.target.closest('[data-kind]');
+  const pt = toWorld(e);
+  svg.setPointerCapture(e.pointerId);
+
+  const empty = !el || el.dataset.kind === 'boundary';
+  if (e.button === 1 || (tool === 'select' && empty)) {
+    if (e.button === 0) {
+      selection = null;
+      render();
+    }
+    drag = { type: 'pan', sx: e.clientX, sy: e.clientY, view: { ...view() } };
+  } else if (tool === 'select') {
+    startSelect(el, pt);
+  } else if (tool === 'module' || tool === 'subsystem') {
+    drag = { type: 'box', start: pt, end: pt };
+  } else if (tool === 'unknown') {
+    commit({ type: 'addUnknown', sheetId: currentSheet(), x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) });
+  } else if (tool === 'wire') {
+    drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt };
+  }
+});
+
+svg.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const pt = toWorld(e);
+  if (drag.type === 'pan') {
+    Object.assign(view(), { x: drag.view.x + e.clientX - drag.sx, y: drag.view.y + e.clientY - drag.sy });
+  } else if (drag.type === 'box' || drag.type === 'wire') {
+    drag.end = pt;
+  } else {
+    drag.cmd = dragCommand(drag, pt);
+    preview = (drag.cmd && apply(doc, drag.cmd).doc) || null;
+  }
+  renderCanvas();
+});
+
+svg.addEventListener('pointerup', async (e) => {
+  const d = drag;
+  drag = null;
+  if (!d) return;
+  const pt = toWorld(e);
+
+  if (d.cmd) {
+    const moved = preview && JSON.stringify(preview) !== JSON.stringify(doc);
+    preview = null;
+    if (moved) commit(d.cmd);
+    else renderCanvas();
+  } else if (d.type === 'box') {
+    const box = boxFrom(d.start, pt);
+    const objectType = tool;
+    renderCanvas();
+    document.getElementById('objectTitle').textContent = `New ${objectType}`;
+    const answer = await ask(objectDialog, { name: '' });
+    if (!answer) return;
+    const r = commit({ type: 'addObject', sheetId: currentSheet(), name: answer.name, objectType, ...box });
+    if (r) {
+      selection = { kind: 'placement', id: r.id };
+      render();
+    }
+  } else if (d.type === 'wire') {
+    const to = targetAt(elementAt(e), pt);
+    renderCanvas();
+    const sameSpot = Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < G;
+    if (targetKey(to) === targetKey(d.from) && (sameSpot || to.placementId || to.unknownId || to.viaId)) return;
+    const via = byId(doc.vias, d.from.viaId) || byId(doc.vias, to.viaId);
+    const answer = await askWire(via ? byId(doc.wires, via.wireId).name : '');
+    if (!answer) return;
+    const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from: d.from, to, wire: answer });
+    if (r) {
+      selection = { kind: 'segment', id: r.id };
+      render();
+    }
+  }
+});
+
+svg.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const v = view();
+  const r = svg.getBoundingClientRect();
+  const k = Math.min(4, Math.max(0.2, v.k * Math.exp(-e.deltaY * 0.0015)));
+  const mx = e.clientX - r.left;
+  const my = e.clientY - r.top;
+  Object.assign(v, { x: mx - ((mx - v.x) * k) / v.k, y: my - ((my - v.y) * k) / v.k, k });
+  renderCanvas();
+}, { passive: false });
+
+window.addEventListener('resize', renderCanvas);
+
+// ---- keyboard & toolbar -----------------------------------------------------
+
+function setTool(name) {
+  tool = name;
+  svg.dataset.tool = name;
+  for (const b of document.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
+}
+
+const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire' };
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, textarea, select, dialog')) return;
+  const key = e.key.toLowerCase();
+  if ((e.metaKey || e.ctrlKey) && key === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
+  } else if ((e.metaKey || e.ctrlKey) && key === 'y') {
+    e.preventDefault();
+    redo();
+  } else if (e.metaKey || e.ctrlKey || e.altKey) {
+    // leave other shortcuts to the browser
+  } else if (TOOL_KEYS[key]) {
+    setTool(TOOL_KEYS[key]);
+  } else if (e.key === 'Escape') {
+    setTool('select');
+    selection = null;
+    subject = null;
+    preview = null;
+    render();
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    deleteSelection();
+  }
+});
+
+for (const b of document.querySelectorAll('[data-tool]')) b.addEventListener('click', () => setTool(b.dataset.tool));
+document.getElementById('undo').addEventListener('click', undo);
+document.getElementById('redo').addEventListener('click', redo);
+
+document.getElementById('export').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(doc, null, 2) + '\n'], { type: 'application/json' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: 'default.json' });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+const importFile = document.getElementById('importFile');
+document.getElementById('import').addEventListener('click', () => importFile.click());
+importFile.addEventListener('change', async () => {
+  const file = importFile.files[0];
+  importFile.value = '';
+  if (!file) return;
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    return alert(`${file.name} is not valid JSON.`);
+  }
+  const problems = validate(data);
+  if (problems.length) return alert(`Can't import ${file.name}:\n\n${problems.slice(0, 8).join('\n')}`);
+  replaceDoc(data);
+});
+
+async function loadDefault() {
+  try {
+    const r = await fetch('default.json', { cache: 'no-cache' });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return validate(data).length ? null : data;
+  } catch {
+    return null;
+  }
+}
+
+document.getElementById('reset').addEventListener('click', async () => {
+  if (!confirm('Replace the current diagram with the site\'s default.json? You can undo this.')) return;
+  const data = await loadDefault();
+  if (data) replaceDoc(data);
+  else toast('No valid default.json was found.');
+});
+
+document.getElementById('new').addEventListener('click', () => {
+  if (confirm('Start an empty diagram? You can undo this.')) replaceDoc(emptyDoc());
+});
+
+// ---- start ------------------------------------------------------------------
+
+const saved = localStore.load();
+doc = saved && !validate(saved).length ? saved : (await loadDefault()) ?? emptyDoc();
+setTool('select');
+render();

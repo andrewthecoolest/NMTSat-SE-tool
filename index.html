@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Satellite Architecture Mapper</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="src/main.js"></script>
+</head>
+<body>
+  <header>
+    <h1>NMTSat Systems Engineering Map</h1>
+    <div class="group">
+      <button data-tool="select" title="Select, move and resize (V)">Select</button>
+      <button data-tool="module" title="Drag to draw a module (M)">Module</button>
+      <button data-tool="subsystem" title="Drag to draw a subsystem (S)">Subsystem</button>
+      <button data-tool="unknown" title="Click to place an unknown load (U)">Unknown load</button>
+      <button data-tool="wire" title="Drag from one thing to another to draw a wire (W)">Wire</button>
+    </div>
+    <div class="group">
+      <button id="undo" title="Undo (Ctrl/Cmd+Z)">Undo</button>
+      <button id="redo" title="Redo (Ctrl/Cmd+Shift+Z)">Redo</button>
+    </div>
+    <div class="group">
+      <button id="export" title="Download the diagram as default.json">Export JSON</button>
+      <button id="import" title="Load a diagram from a JSON file">Import JSON</button>
+      <button id="reset" title="Load the site's default.json">Load default</button>
+      <button id="new" title="Start an empty diagram">New</button>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+  </header>
+
+  <main>
+    <svg id="canvas"></svg>
+    <nav id="crumbs" aria-label="Sheet path"></nav>
+    <div id="status"></div>
+    <dialog id="panel" class="info" aria-label="Info"></dialog>
+    <div id="toast" role="status" hidden></div>
+  </main>
+
+  <dialog id="objectDialog">
+    <form method="dialog">
+      <h2 id="objectTitle">New module</h2>
+      <label class="field"><span>Name</span><input name="name" list="objectNames" required autocomplete="off"></label>
+      <p class="muted">An existing name places that same object here again.</p>
+      <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="wireDialog">
+    <form method="dialog">
+      <h2>Wire</h2>
+      <label class="field"><span>Name</span><input name="name" list="wireNames" required autocomplete="off"></label>
+      <label class="field"><span>Color</span><input name="color" type="color"></label>
+      <label class="field"><span>Direction</span>
+        <select name="direction">
+          <option value="directed">Directed</option>
+          <option value="bidirectional">Bidirectional</option>
+        </select>
+      </label>
+      <p class="muted" id="wireHint"></p>
+      <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
+    </form>
+  </dialog>
+
+  <datalist id="objectNames"></datalist>
+  <datalist id="wireNames"></datalist>
+</body>
+</html>
