@@ -1,11 +1,11 @@
 // App wiring: state, history, pointer/keyboard handling, toolbar.
 import { apply, byId, emptyDoc, upgrade, validate, wireByName } from './model.js';
-import { sheetName, sheetPath, status } from './derive.js';
-import { G, itemsInRect, nearestSide, renderSheet, wireGhost } from './view.js';
+import { bundleSummary, sheetName, sheetPath, status } from './derive.js';
+import { G, itemsInRect, nearestSide, renderSheet, segmentEnds, wireGhost } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
 import { createPreview } from './preview.js';
-import { project } from './bundles.js';
+import { boxPort, project } from './bundles.js';
 import { plainText, richEditor, richToHtml } from './richtext.js';
 
 const NOTE_BOX = { w: 8, h: 2 }; // default text box size, in grid units
@@ -46,8 +46,9 @@ const hoverPreview = createPreview({
     return el?.getBoundingClientRect() ?? null;
   },
   parentName: () => sheetName(doc, currentSheet()),
-  // Clicking a preview enters the subsystem, or opens the module's or bundle's info view.
-  onOpen: (key) => {
+  // Clicking a preview enters the subsystem (or, on its details, opens its info),
+  // or opens the module's or bundle's info view.
+  onOpen: (key, part) => {
     const [kind, placementId] = key.split(':');
     if (kind === 'b') {
       selection = { kind: 'bundle', id: placementId };
@@ -57,7 +58,7 @@ const hoverPreview = createPreview({
     const p = byId(doc.placements, placementId);
     const obj = p && byId(doc.objects, p.objectId);
     if (!obj) return;
-    if (obj.type === 'subsystem') return goTo([...path, obj.id]);
+    if (obj.type === 'subsystem' && part !== 'details') return goTo([...path, obj.id]);
     selection = { kind: 'placement', id: p.id };
     subject = { kind: 'object', id: obj.id, placementId: p.id };
     render();
@@ -395,7 +396,7 @@ function boxFrom(a, b, fallback = { w: 6, h: 3 }) {
 function targetAt(el, pt) {
   const kind = el?.dataset.kind;
   const id = el?.dataset.id;
-  if (kind === 'placement' || kind === 'info' || kind === 'resize') {
+  if (kind === 'placement' || kind === 'resize') {
     const p = byId(doc.placements, id);
     if (byId(doc.objects, p.objectId).type === 'module') return { kind: 'module', placementId: id };
     return { kind: 'subsystem', placementId: id, ...nearestSide(p, pt) };
@@ -448,10 +449,19 @@ async function finishWire(from, to) {
   }
 }
 
+function openWire(segmentId) {
+  const seg = byId(doc.segments, segmentId);
+  if (!seg) return renderCanvas();
+  selection = { kind: 'segment', id: segmentId };
+  subject = { kind: 'wire', id: seg.wireId, segmentId };
+  render();
+}
+
 // Ask which wire to pull out of a bundle (null if cancelled, or if it carries none).
 async function askPull(bundleId) {
   const b = byId(doc.bundles, bundleId);
-  const inside = doc.wires.filter((w) => doc.taps.some((t) => t.bundleId === b.id && t.wireId === w.id));
+  // Any wire in the bundle, including parts of it across subsystem edges.
+  const inside = bundleSummary(doc, b.id).lanes.map((l) => l.wire);
   if (!inside.length) {
     toast(`No wires are in ${b.name} yet. Draw a wire onto it to put it in.`);
     return null;
@@ -468,9 +478,10 @@ const gridPoint = (pt) => ({ x: Math.round(pt.x / G), y: Math.round(pt.y / G) })
 
 function finishBundle() {
   const points = bundling?.points ?? [];
+  const cross = bundling?.cross ?? [];
   bundling = null;
   if (points.length < 2) return renderCanvas();
-  const r = commit({ type: 'addBundle', sheetId: currentSheet(), points });
+  const r = commit({ type: 'addBundle', sheetId: currentSheet(), points, cross });
   if (r) {
     selection = { kind: 'bundle', id: r.id };
     render();
@@ -479,6 +490,22 @@ function finishBundle() {
 
 // World rectangle (px) spanned by two points.
 const rectFrom = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) });
+
+// A wire end attached to placement p within reach of pt, as a drag to move it
+// around the box (a module end) or move its port (a subsystem end).
+function wireEndNear(p, pt) {
+  for (const seg of doc.segments) {
+    if (seg.sheetId !== currentSheet()) continue;
+    const ends = segmentEnds(doc, seg);
+    for (const end of ['from', 'to']) {
+      const ep = seg[end];
+      if (ep.placementId !== p.id || Math.hypot(ends[end].x - pt.x, ends[end].y - pt.y) > 10) continue;
+      if (ep.kind === 'module') return { type: 'segEnd', id: seg.id, end, placementId: p.id };
+      if (ep.kind === 'port' && !byId(doc.vias, ep.viaId)?.crossingId) return { type: 'movePort', id: ep.viaId, placementId: p.id, segmentId: seg.id };
+    }
+  }
+  return null;
+}
 
 function startSelect(el, pt) {
   const { kind, id } = el.dataset;
@@ -490,17 +517,26 @@ function startSelect(el, pt) {
   const double = lastClick.id === id && now - lastClick.time < 400;
   lastClick = double ? {} : { id, time: now };
 
-  if (kind === 'info') {
-    selection = { kind: 'placement', id };
-    subject = { kind: 'object', id: byId(doc.placements, id).objectId, placementId: id };
-    render();
-  } else if (kind === 'resize') {
+  if (kind === 'resize') {
     drag = { type: 'resize', id };
   } else if (kind === 'noteResize') {
     drag = { type: 'resizeNote', id };
   } else if (kind === 'placement') {
     const p = byId(doc.placements, id);
-    if (double && byId(doc.objects, p.objectId).type === 'subsystem') return goTo([...path, p.objectId]);
+    const type = byId(doc.objects, p.objectId).type;
+    // A wire end at the box's edge can be grabbed from just inside the box too.
+    const end = !double && wireEndNear(p, pt);
+    if (end) {
+      selection = { kind: 'segment', id: end.segmentId };
+      drag = end;
+      return render();
+    }
+    if (double && type === 'subsystem') return goTo([...path, p.objectId]);
+    if (double) {
+      selection = { kind, id };
+      subject = { kind: 'object', id: p.objectId, placementId: id };
+      return render();
+    }
     selection = { kind, id };
     drag = { type: 'move', id, dx: gx - p.x, dy: gy - p.y };
     render();
@@ -524,8 +560,15 @@ function startSelect(el, pt) {
     render();
     if (double) askNote(n);
   } else if (kind === 'segment') {
+    // Pressing near an end on a module or subsystem drags that end around the box;
+    // otherwise a click opens the wire's info when released.
+    const seg = byId(doc.segments, id);
+    const ends = segmentEnds(doc, seg);
+    const near = ['from', 'to'].find((end) => Math.hypot(ends[end].x - pt.x, ends[end].y - pt.y) < 14 && ['module', 'port'].includes(seg[end].kind));
     selection = { kind, id };
-    subject = { kind: 'wire', id: byId(doc.segments, id).wireId, segmentId: id };
+    if (near && seg[near].kind === 'module') drag = { type: 'segEnd', id, end: near, placementId: seg[near].placementId };
+    else if (near) drag = { type: 'movePort', id: seg[near].viaId, placementId: seg[near].placementId, segmentId: id };
+    else drag = { type: 'segClick', id };
     render();
   } else if (kind === 'bundle') {
     // Click selects (and drags) a bundle; double-click opens its info.
@@ -559,6 +602,7 @@ function dragCommand(d, pt) {
     return { type: 'moveNote', id: d.id, w: gx - n.x, h: gy - n.y };
   }
   if (d.type === 'moveVia') return { type: 'moveVia', id: d.id, x: gx, y: gy };
+  if (d.type === 'segEnd') return { type: 'setSegmentEnd', id: d.id, end: d.end, ...nearestSide(byId(doc.placements, d.placementId), pt) };
   if (d.type === 'moveTap') {
     const t = byId(doc.taps, d.id);
     return { type: 'moveTap', id: d.id, at: project(byId(doc.bundles, t.bundleId).points, gx, gy) };
@@ -611,7 +655,27 @@ svg.addEventListener('pointerdown', (e) => {
   } else if (tool === 'wire') {
     drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt, hover: null };
   } else if (tool === 'bundle') {
-    // Each click adds a corner; clicking the last point again (a double-click) finishes.
+    // Each click adds a corner; clicking the last point again (a double-click)
+    // finishes. Clicking a subsystem box plugs that end into it.
+    const box = el?.dataset.kind === 'placement' || el?.dataset.kind === 'resize' ? byId(doc.placements, el.dataset.id) : null;
+    if (box && byId(doc.objects, box.objectId).type === 'subsystem') {
+      const { side, offset } = nearestSide(box, pt);
+      const g = boxPort(box, side, offset);
+      const plug = { placementId: box.id, side, offset };
+      if (!bundling) {
+        bundling = { points: [g], cursor: g, cross: [{ end: 0, ...plug }] };
+        return renderCanvas();
+      }
+      // Turn so the last leg goes straight into the box's edge.
+      const last = bundling.points[bundling.points.length - 1];
+      const corner = side === 'top' || side === 'bottom' ? { x: g.x, y: last.y } : { x: last.x, y: g.y };
+      for (const q of [corner, g]) {
+        const prev = bundling.points[bundling.points.length - 1];
+        if (q.x !== prev.x || q.y !== prev.y) bundling.points.push(q);
+      }
+      (bundling.cross ||= []).push({ end: 1, ...plug });
+      return finishBundle();
+    }
     const g = gridPoint(pt);
     if (!bundling) bundling = { points: [g], cursor: g };
     else {
@@ -669,7 +733,11 @@ svg.addEventListener('pointerup', async (e) => {
     if (moved) {
       lastClick = {}; // a press that became a drag doesn't count toward a double-click
       commit(d.cmd);
+    } else if (d.type === 'segEnd' || d.segmentId) {
+      openWire(d.segmentId || d.id);
     } else renderCanvas();
+  } else if (d.type === 'segClick' || d.type === 'segEnd' || d.segmentId) {
+    openWire(d.segmentId || d.id);
   } else if (d.type === 'box') {
     const box = boxFrom(d.start, pt);
     const objectType = tool;

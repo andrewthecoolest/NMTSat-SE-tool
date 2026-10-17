@@ -1,7 +1,7 @@
 // SVG rendering of one sheet. Pure: returns markup for the current state.
 import { DEFAULT_OBJECT_COLOR, byId, insideBundle } from './model.js';
 import { pathLength, pointAt } from './bundles.js';
-import { isOpenVia, viaDestinations } from './derive.js';
+import { isOpenVia, sheetName, viaDestinations } from './derive.js';
 import { richToHtml } from './richtext.js';
 
 export const G = 20; // pixels per grid unit
@@ -9,7 +9,7 @@ const VIA_R = 8;
 const PORT_R = 5;
 const NORMAL = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
 const TAP_R = 4;
-const PEEK_INSET = 16; // a box's hover-preview zone keeps this far from its edges (wires, ports, the i button)
+const PEEK_INSET = 6; // a box's hover-preview zone keeps this far from its edges, where wires and ports attach
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const pxRect = (p) => ({ x: p.x * G, y: p.y * G, w: p.w * G, h: p.h * G });
@@ -50,7 +50,12 @@ function arrow(tip, dx, dy, color, size = 8) {
 // ---- wire geometry ----------------------------------------------------------
 
 function endShape(doc, ep) {
-  if (ep.kind === 'module') return { rect: pxRect(byId(doc.placements, ep.placementId)) };
+  if (ep.kind === 'module') {
+    const p = byId(doc.placements, ep.placementId);
+    // A wire end moved by hand stays on the side and spot it was put.
+    if (ep.side) return { point: portPoint(p, { portSide: ep.side, portOffset: ep.offset }), side: ep.side, radius: 0 };
+    return { rect: pxRect(p) };
+  }
   if (ep.kind === 'unknown') {
     const u = byId(doc.unknownLoads, ep.unknownId);
     return { rect: { x: u.x * G, y: u.y * G, w: G, h: G } };
@@ -116,22 +121,39 @@ function anchor(s, toward) {
 }
 
 // Orthogonal route between two anchors: step out from each side, then connect.
+// Of the possible right-angle joins, prefer one that doesn't double back toward
+// either end's box (which happens when an end faces away from the other).
 function route(a, b) {
   const horizontal = (s) => s === 'left' || s === 'right';
   const stub = (p) => ({ x: p.x + NORMAL[p.side][0] * G, y: p.y + NORMAL[p.side][1] * G });
   const a1 = stub(a);
   const b1 = stub(b);
-  let middle;
-  if (horizontal(a.side) && horizontal(b.side)) {
-    const mx = (a1.x + b1.x) / 2;
-    middle = [{ x: mx, y: a1.y }, { x: mx, y: b1.y }];
-  } else if (!horizontal(a.side) && !horizontal(b.side)) {
-    const my = (a1.y + b1.y) / 2;
-    middle = [{ x: a1.x, y: my }, { x: b1.x, y: my }];
-  } else {
-    middle = [horizontal(a.side) ? { x: b1.x, y: a1.y } : { x: a1.x, y: b1.y }];
-  }
+  const mx = (a1.x + b1.x) / 2;
+  const my = (a1.y + b1.y) / 2;
+  const viaX = [{ x: mx, y: a1.y }, { x: mx, y: b1.y }];
+  const viaY = [{ x: a1.x, y: my }, { x: b1.x, y: my }];
+  const corners = [[{ x: b1.x, y: a1.y }], [{ x: a1.x, y: b1.y }]];
+  let options;
+  if (horizontal(a.side) && horizontal(b.side)) options = [viaX, viaY];
+  else if (!horizontal(a.side) && !horizontal(b.side)) options = [viaY, viaX];
+  else options = horizontal(a.side) ? corners : [corners[1], corners[0]];
+  const backtracks = (middle) => {
+    const pts = [a1, ...middle, b1].filter((p, i, all) => i === 0 || p.x !== all[i - 1].x || p.y !== all[i - 1].y);
+    if (pts.length < 2) return 0;
+    const [na, nb] = [NORMAL[a.side], NORMAL[b.side]];
+    const first = { x: pts[1].x - pts[0].x, y: pts[1].y - pts[0].y };
+    const last = { x: pts[pts.length - 1].x - pts[pts.length - 2].x, y: pts[pts.length - 1].y - pts[pts.length - 2].y };
+    return (first.x * na[0] + first.y * na[1] < 0 ? 1 : 0) + (last.x * nb[0] + last.y * nb[1] > 0 ? 1 : 0);
+  };
+  const middle = options.reduce((best, o) => (backtracks(o) < backtracks(best) ? o : best));
   return [a, a1, ...middle, b1, b];
+}
+
+// Where a segment's two ends are drawn (for dragging an end around its module).
+export function segmentEnds(doc, seg) {
+  const sa = endShape(doc, seg.from);
+  const sb = endShape(doc, seg.to);
+  return { from: anchor(sa, centerOf(sb)), to: anchor(sb, centerOf(sa)) };
 }
 
 function segmentMarkup(doc, seg, selected) {
@@ -269,7 +291,8 @@ function peekZone(r) {
 function placementMarkup(doc, p, selected) {
   const o = byId(doc.objects, p.objectId);
   const r = pxRect(p);
-  const ports = o.type === 'subsystem' ? doc.vias.filter((v) => v.subsystemId === o.id).map((v) => portMarkup(doc, p, v)).join('') : '';
+  // Ports of vias that carry wires inside a bundle are part of the bundle, not drawn.
+  const ports = o.type === 'subsystem' ? doc.vias.filter((v) => v.subsystemId === o.id && !v.crossingId).map((v) => portMarkup(doc, p, v)).join('') : '';
   const handle = selected ? `<rect class="handle" data-kind="resize" data-id="${p.id}" x="${r.x + r.w - 5}" y="${r.y + r.h - 5}" width="10" height="10"/>` : '';
   // A colored box gets a very light tint of its color; the default color stays white.
   const tint = o.color.toLowerCase() === DEFAULT_OBJECT_COLOR ? '' : ` style="fill:color-mix(in srgb, ${esc(o.color)} 9%, #fff)"`;
@@ -277,11 +300,6 @@ function placementMarkup(doc, p, selected) {
     <rect class="body" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" stroke="${esc(o.color)}"${tint}/>
     ${peekZone(r)}
     <text class="label" x="${r.x + r.w / 2}" y="${r.y + r.h / 2}">${esc(o.name)}</text>
-    <g class="info" data-kind="info" data-id="${p.id}">
-      <title>Info</title>
-      <circle cx="${r.x + r.w - 9}" cy="${r.y + 9}" r="6"/>
-      <text x="${r.x + r.w - 9}" y="${r.y + 9}">i</text>
-    </g>
     ${ports}${handle}
   </g>`;
 }
@@ -316,6 +334,16 @@ function bundleMarkup(doc, b, selected) {
   const lx = (pts[best].x + pts[best + 1].x) / 2;
   const ly = (pts[best].y + pts[best + 1].y) / 2;
   const wires = new Set(doc.taps.filter((t) => t.bundleId === b.id).map((t) => t.wireId)).size;
+  // An end plugged into a subsystem box has no cap; an end that carries on from
+  // a parent sheet is a bundle via, labeled with where it comes from.
+  const endMark = (end, q, from) => {
+    const c = doc.crossings.find((x) => (x.outerId === b.id && x.outerEnd === end) || (x.innerId === b.id && x.innerEnd === end));
+    if (!c) return cap(q, from);
+    if (c.outerId === b.id) return '';
+    const parent = sheetName(doc, byId(doc.placements, c.placementId)?.sheetId);
+    return `<rect class="bundle-via" x="${q.x - 9}" y="${q.y - 9}" width="18" height="18" rx="4"/>
+    <text class="bundle-via-label" x="${q.x}" y="${q.y + 24}">${esc(b.name)} from ${esc(parent)}</text>`;
+  };
   const handles = selected
     ? pts.map((q, i) => `<rect class="handle" data-kind="bundlePoint" data-id="${b.id}" data-index="${i}" x="${q.x - 5}" y="${q.y - 5}" width="10" height="10"/>`).join('')
     : '';
@@ -324,7 +352,7 @@ function bundleMarkup(doc, b, selected) {
     <path class="hit" d="${d}"/>
     <path class="outer" d="${d}"/>
     <path class="inner" d="${d}"/>
-    ${cap(pts[0], pts[1])}${cap(pts[pts.length - 1], pts[pts.length - 2])}
+    ${endMark(0, pts[0], pts[1])}${endMark(1, pts[pts.length - 1], pts[pts.length - 2])}
     ${(() => {
       // The label sits on a small pill, which is the bundle's hover-preview zone.
       const text = `${b.name} · ${wires} wire${wires === 1 ? '' : 's'}`;
@@ -361,6 +389,7 @@ export function bundleDiagram(summary) {
   parts.push(`<text class="track-end" x="${left - 16}" y="${(top + bottom) / 2 + 4}" text-anchor="end">A</text>`);
   parts.push(`<text class="track-end" x="${left + trackW + 16}" y="${(top + bottom) / 2 + 4}">B</text>`);
   for (const at of cuts) if (at > 0 && at < length) parts.push(`<line class="cut" x1="${x(at)}" y1="${top - 24}" x2="${x(at)}" y2="${bottom + 28}"/>`);
+  for (const edge of summary.edges ?? []) parts.push(`<text class="lane-note" x="${x(edge.at)}" y="${top - 30}" text-anchor="middle">${esc(edge.name)} edge</text>`);
   if (!lanes.length) parts.push(`<text class="lane-note" x="${left + trackW / 2}" y="${top + 4}" text-anchor="middle">No wires in this bundle yet.</text>`);
   lanes.forEach((lane, i) => {
     const y = top + i * laneH;
@@ -462,11 +491,13 @@ export function renderSheet(doc, { sheetId, parentName, selection, view, width, 
   for (const t of doc.taps) {
     const b = byId(doc.bundles, t.bundleId);
     if (b.sheetId !== sheetId) continue;
-    const open = doc.segments.filter((s) => [s.from, s.to].some((ep) => ep.kind === 'tap' && ep.tapId === t.id)).length < 2;
-    parts.push(tapMarkup(doc, t, open, sel('tap', t.id)));
+    const touching = doc.segments.filter((s) => [s.from, s.to].some((ep) => ep.kind === 'tap' && ep.tapId === t.id));
+    // Where a wire crosses a subsystem edge with its bundle, it's part of the bundle.
+    if (touching.some((s) => insideBundle(doc, s) && [s.from, s.to].some((ep) => ep.kind === 'via' || ep.kind === 'port'))) continue;
+    parts.push(tapMarkup(doc, t, touching.length < 2, sel('tap', t.id)));
   }
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) parts.push(unknownMarkup(u, sel('unknown', u.id)));
-  for (const v of doc.vias) if (v.subsystemId === sheetId) parts.push(viaMarkup(doc, v, parentName, sel('via', v.id)));
+  for (const v of doc.vias) if (v.subsystemId === sheetId && !v.crossingId) parts.push(viaMarkup(doc, v, parentName, sel('via', v.id)));
   for (const n of doc.notes) if (n.sheetId === sheetId) parts.push(noteMarkup(n, sel('note', n.id)));
   parts.push(overlay);
 

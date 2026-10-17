@@ -10,7 +10,7 @@ import { bundleDiagram, renderSheet, sheetBounds } from './view.js';
 import { bundleSectionLines, bundleWireLines, h } from './panel.js';
 import { plainText, richToHtml } from './richtext.js';
 
-const HOVER_MS = 500;
+const HOVER_MS = 150;
 const CLOSE_MS = 200;   // matches #preview.closing in style.css
 const SIZE = 0.6;       // expanded subsystem preview, as a fraction of the canvas
 const SIDE = 0.35;      // share of a subsystem preview's width given to its details
@@ -72,7 +72,7 @@ function bundleView(summary) {
 }
 
 function title(obj) {
-  const hint = obj.type === 'subsystem' ? 'Click to open · move away to close' : 'Click for info · move away to close';
+  const hint = obj.type === 'subsystem' ? 'Click the sheet to open it, or the details to edit · move away to close' : 'Click to edit · move away to close';
   return h('header', {}, swatch(obj.color), h('span', { class: 'name' }, obj.name), h('span', { class: 'hint' }, hint));
 }
 
@@ -97,6 +97,7 @@ function sheetView(doc, obj, w, h, parentName) {
 // ---- the preview window -----------------------------------------------------
 
 // Previews are keyed "p:<placement id>" (a box) or "b:<bundle id>" (a bundle).
+// onOpen gets the key and which part was clicked ('details' or 'sheet').
 // host: the element the preview covers. getDoc(): the current document.
 // boxRect(key): screen rect of that box or bundle, or null. parentName(): name
 // of the sheet being viewed. onOpen(key): open what the preview shows.
@@ -235,10 +236,11 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
   el.addEventListener('wheel', (e) => {
     if (!e.target.closest('.scroll')) e.preventDefault();
   }, { passive: false });
-  el.addEventListener('click', () => {
+  el.addEventListener('click', (e) => {
     const key = open?.key;
+    const part = e.target.closest('.details') ? 'details' : 'sheet';
     hide(false);
-    if (key) onOpen(key);
+    if (key) onOpen(key, part);
   });
 
   return { hover, cancel, hide };

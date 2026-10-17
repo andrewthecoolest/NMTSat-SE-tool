@@ -82,3 +82,43 @@ export function movePoint(points, index, x, y) {
   next[index] = { x, y };
   return cleanPoints(next);
 }
+
+const NORMALS = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
+
+// End the path (at its last point) square into a box edge at `target` on `side`:
+// its last leg is perpendicular to that edge, one grid unit long or more.
+export function plugInto(points, target, side) {
+  const [nx, ny] = NORMALS[side];
+  const last = points[points.length - 1];
+  const prev = points[points.length - 2];
+  const square = last.x === target.x && last.y === target.y && prev
+    && (side === 'top' || side === 'bottom' ? prev.x === last.x && (prev.y - last.y) * ny > 0 : prev.y === last.y && (prev.x - last.x) * nx > 0);
+  if (square) return points;
+  const body = points.slice(0, -1);
+  const from = body[body.length - 1];
+  const stub = { x: target.x + nx, y: target.y + ny };
+  const corner = side === 'top' || side === 'bottom' ? { x: from.x, y: stub.y } : { x: stub.x, y: from.y };
+  return cleanPoints([...body, corner, stub, target]);
+}
+
+// Where a bundle meets a subsystem box (placement p, in grid units): the grid
+// point on its `side`, `offset` (0..1) of the way along.
+export function boxPort(p, side, offset) {
+  if (side === 'top') return { x: Math.round(p.x + offset * p.w), y: p.y };
+  if (side === 'bottom') return { x: Math.round(p.x + offset * p.w), y: p.y + p.h };
+  if (side === 'left') return { x: p.x, y: Math.round(p.y + offset * p.h) };
+  return { x: p.x + p.w, y: Math.round(p.y + offset * p.h) };
+}
+
+// The side of box p nearest a grid point, and how far along it (0..1).
+export function nearestBoxSide(p, x, y) {
+  const clamp01 = (n) => Math.min(1, Math.max(0, n));
+  const options = [
+    { side: 'top', d: Math.abs(y - p.y), offset: (x - p.x) / p.w },
+    { side: 'bottom', d: Math.abs(y - p.y - p.h), offset: (x - p.x) / p.w },
+    { side: 'left', d: Math.abs(x - p.x), offset: (y - p.y) / p.h },
+    { side: 'right', d: Math.abs(x - p.x - p.w), offset: (y - p.y) / p.h },
+  ];
+  const best = options.sort((a, b) => a.d - b.d)[0];
+  return { side: best.side, offset: clamp01(best.offset) };
+}

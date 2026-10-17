@@ -1,7 +1,7 @@
 // Document model. Every change goes through apply(doc, command), which works on
 // a copy and only returns the new document if it still satisfies every invariant.
 import { isRich, normalize, plainText, runsOf } from './richtext.js';
-import { cleanPoints, isOrthogonal, movePoint, pathLength, pointAt } from './bundles.js';
+import { boxPort, cleanPoints, isOrthogonal, movePoint, nearestBoxSide, pathLength, plugInto, pointAt } from './bundles.js';
 
 export const SCHEMA_VERSION = 1;
 export const DEFAULT_OBJECT_COLOR = '#334155';
@@ -10,14 +10,14 @@ const SIDES = ['top', 'right', 'bottom', 'left'];
 const PORT_SPREAD = [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6];
 
 export function emptyDoc() {
-  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [] };
+  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [], crossings: [] };
 }
 
 // Older documents: no notes, bundles or taps lists, or notes without a size (they
 // used to size themselves to their text: about 8px per character and 18px per line).
 export function upgrade(data) {
   if (!data || typeof data !== 'object') return data;
-  for (const k of ['notes', 'bundles', 'taps']) if (!(k in data)) data[k] = [];
+  for (const k of ['notes', 'bundles', 'taps', 'crossings']) if (!(k in data)) data[k] = [];
   if (!Array.isArray(data.notes)) return data;
   for (const n of data.notes) {
     if (!n || typeof n !== 'object' || ('w' in n && 'h' in n)) continue;
@@ -113,8 +113,94 @@ function components(edges) {
 const touchesVia = (s, viaId) => [s.from, s.to].some((ep) => (ep.kind === 'via' || ep.kind === 'port') && ep.viaId === viaId);
 const touchesTap = (s, tapId) => [s.from, s.to].some((ep) => ep.kind === 'tap' && ep.tapId === tapId);
 const tapBundle = (doc, ep) => (ep?.kind === 'tap' ? byId(doc.taps, ep.tapId)?.bundleId : undefined);
-// A segment that runs inside a bundle (between two of its taps).
-export const insideBundle = (doc, s) => !!tapBundle(doc, s.from) && tapBundle(doc, s.from) === tapBundle(doc, s.to);
+const crossingVia = (doc, ep) => ((ep?.kind === 'via' || ep?.kind === 'port') && byId(doc.vias, ep.viaId)?.crossingId) || undefined;
+// A segment that runs inside a bundle: between two of its taps, or between a
+// tap and the via that carries the wire across a subsystem edge with the bundle.
+export const insideBundle = (doc, s) =>
+  (!!tapBundle(doc, s.from) && tapBundle(doc, s.from) === tapBundle(doc, s.to))
+  || (!!tapBundle(doc, s.from) && !!crossingVia(doc, s.to))
+  || (!!tapBundle(doc, s.to) && !!crossingVia(doc, s.from));
+
+// ---------------------------------------------------------------------------
+// Bundles across subsystems. A crossing joins an end (0 = A, 1 = B) of a bundle
+// on a parent sheet (`outer`, plugged into a subsystem box there) to an end of a
+// bundle inside that subsystem (`inner`). Joined bundles form one chain that the
+// user sees as a single bundle.
+
+const crossingAt = (doc, bundleId, end) =>
+  doc.crossings.find((c) => (c.outerId === bundleId && c.outerEnd === end) || (c.innerId === bundleId && c.innerEnd === end));
+const otherSide = (c, bundleId, end) => (c.outerId === bundleId && c.outerEnd === end ? { id: c.innerId, end: c.innerEnd } : { id: c.outerId, end: c.outerEnd });
+
+// The bundles joined to `bundleId`, in order from one free end to the other:
+// items { bundle, reversed, offset, length } (offset = distance along the whole
+// chain to the item's start) and joints { crossing, at } between them.
+export function bundleChain(doc, bundleId) {
+  let piece = bundleId;
+  let leaving = 0;
+  const seen = new Set();
+  for (;;) {
+    const c = crossingAt(doc, piece, leaving);
+    if (!c || seen.has(c.id)) break;
+    seen.add(c.id);
+    const o = otherSide(c, piece, leaving);
+    piece = o.id;
+    leaving = 1 - o.end;
+  }
+  const items = [];
+  const joints = [];
+  let entry = leaving;
+  let offset = 0;
+  const visited = new Set();
+  while (piece && !visited.has(piece)) {
+    visited.add(piece);
+    const bundle = byId(doc.bundles, piece);
+    if (!bundle) break;
+    const length = pathLength(bundle.points);
+    items.push({ bundle, reversed: entry === 1, offset, length });
+    offset += length;
+    const c = crossingAt(doc, piece, 1 - entry);
+    if (!c) break;
+    joints.push({ crossing: c, at: offset });
+    const o = otherSide(c, piece, 1 - entry);
+    piece = o.id;
+    entry = o.end;
+  }
+  return { items, joints, length: offset };
+}
+
+const endIndex = (b, end) => (end ? b.points.length - 1 : 0);
+
+// Keep every bundle that plugs into a box attached to its edge (boxes move and
+// resize), and keep the vias that carry wires across in step with it.
+function attachCrossings(doc) {
+  for (const c of doc.crossings) {
+    const outer = byId(doc.bundles, c.outerId);
+    const inner = byId(doc.bundles, c.innerId);
+    const p = byId(doc.placements, c.placementId);
+    if (!outer || !inner || !p) continue;
+    const target = boxPort(p, c.side, c.offset);
+    // Work on the path as if the plugged end were last, so it meets the edge square-on.
+    const ordered = c.outerEnd ? outer.points : [...outer.points].reverse();
+    const plugged = plugInto(ordered, target, c.side);
+    if (plugged !== ordered) {
+      const before = pathLength(outer.points);
+      outer.points = c.outerEnd ? plugged : [...plugged].reverse();
+      const grew = pathLength(outer.points) - before;
+      // Positions count from end A, so a change at end A shifts them.
+      if (c.outerEnd === 0) for (const t of doc.taps) if (t.bundleId === outer.id) t.at = Math.max(0, t.at + grew);
+      const length = pathLength(outer.points);
+      for (const t of doc.taps) if (t.bundleId === outer.id) t.at = Math.min(t.at, length);
+    }
+    const inside = inner.points[endIndex(inner, c.innerEnd)];
+    for (const v of doc.vias) {
+      if (v.crossingId === c.id) Object.assign(v, { x: inside.x, y: inside.y, portSide: c.side, portOffset: c.offset });
+    }
+  }
+}
+
+// A tap where a wire crosses a subsystem edge with its bundle (it follows the bundle).
+const isCrossingTap = (doc, tapId) =>
+  doc.segments.some((s) => touchesTap(s, tapId) && (crossingVia(doc, s.from) || crossingVia(doc, s.to)));
 const touchesUnknown = (s, unknownId) => [s.from, s.to].some((ep) => ep.kind === 'unknown' && ep.unknownId === unknownId);
 
 // True if sheetId is outerId's sheet or lies (transitively) inside it.
@@ -146,7 +232,7 @@ export function validate(doc) {
 
 function check(doc) {
   if (!doc || doc.schemaVersion !== SCHEMA_VERSION) return [`Unsupported schemaVersion (expected ${SCHEMA_VERSION}).`];
-  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps'];
+  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps', 'crossings'];
   for (const k of lists) if (!Array.isArray(doc[k])) return [`Missing "${k}" list.`];
 
   const errors = [];
@@ -193,6 +279,19 @@ function check(doc) {
     else if (!sheetOk(b.sheetId)) errors.push(`${b.name} is on a missing sheet.`);
     else if (!pointsOk || !isOrthogonal(b.points) || !pathLength(b.points)) errors.push(`${b.name} needs a path of straight horizontal and vertical legs.`);
   }
+  const usedEnds = new Set();
+  for (const c of doc.crossings) {
+    const outer = byId(doc.bundles, c.outerId);
+    const inner = byId(doc.bundles, c.innerId);
+    const p = byId(doc.placements, c.placementId);
+    if (!outer || !inner || outer === inner || !p || !isSubsystem(p.objectId)) { errors.push('A bundle crossing refers to a missing bundle or subsystem.'); continue; }
+    if (outer.sheetId !== p.sheetId || inner.sheetId !== p.objectId) errors.push(`${outer.name} crosses into a subsystem from the wrong sheet.`);
+    if (![0, 1].includes(c.outerEnd) || ![0, 1].includes(c.innerEnd) || !SIDES.includes(c.side) || !(c.offset >= 0 && c.offset <= 1)) errors.push(`${outer.name} has an invalid subsystem crossing.`);
+    for (const key of [`${c.outerId}/${c.outerEnd}`, `${c.innerId}/${c.innerEnd}`]) {
+      if (usedEnds.has(key)) errors.push(`${outer.name} has two crossings at one end.`);
+      usedEnds.add(key);
+    }
+  }
   if (errors.length) return errors;
 
   const wireNames = new Set();
@@ -210,7 +309,11 @@ function check(doc) {
     if (!isSubsystem(v.subsystemId)) { errors.push(`A ${w.name} via is in a missing subsystem.`); continue; }
     const directionOk = w.direction === 'bidirectional' ? v.direction === 'bi' : v.direction === 'in' || v.direction === 'out';
     if (!directionOk) errors.push(`${w.name} has a via with the wrong direction.`);
-    const key = `${v.wireId}/${v.subsystemId}/${v.direction}`;
+    if (v.crossingId) {
+      const c = byId(doc.crossings, v.crossingId);
+      if (!c || byId(doc.placements, c.placementId)?.objectId !== v.subsystemId) errors.push(`${w.name} crosses into a subsystem with a bundle that isn't there.`);
+    }
+    const key = `${v.wireId}/${v.subsystemId}/${v.direction}/${v.crossingId ?? ''}`;
     if (viaKeys.has(key)) errors.push(`${w.name} has two ${v.direction} vias in ${byId(doc.objects, v.subsystemId).name}.`);
     viaKeys.add(key);
     if (!finite(v.x, v.y) || !SIDES.includes(v.portSide) || !(v.portOffset >= 0 && v.portOffset <= 1)) {
@@ -249,6 +352,9 @@ function check(doc) {
 
 function endpointProblem(doc, seg, ep) {
   if (!ep) return 'a segment is missing an end';
+  if (ep.kind === 'module' && (ep.side !== undefined || ep.offset !== undefined) && (!SIDES.includes(ep.side) || !(ep.offset >= 0 && ep.offset <= 1))) {
+    return 'a segment is attached to an invalid spot on a module';
+  }
   if (ep.kind === 'module' || ep.kind === 'port') {
     const p = byId(doc.placements, ep.placementId);
     if (!p) return 'a segment ends at a missing placement';
@@ -309,6 +415,7 @@ export function apply(doc, command) {
   try {
     const handler = commands[command.type] || fail(`Unknown command ${command.type}.`);
     const result = handler(next, command) || {};
+    attachCrossings(next);
     const problems = validate(next);
     if (problems.length) return { error: problems[0] };
     return { doc: next, ...result };
@@ -350,7 +457,7 @@ function placementOn(doc, sheetId, placementId) {
 // Vias for a (wire, subsystem) pair. `side` is where the segment is drawn:
 // 'parent' (at a port on the subsystem box) or 'inside' (at the sheet boundary).
 function findOrCreateVia(doc, wire, subsystemId, side, role, pos) {
-  const mine = doc.vias.filter((v) => v.wireId === wire.id && v.subsystemId === subsystemId);
+  const mine = doc.vias.filter((v) => v.wireId === wire.id && v.subsystemId === subsystemId && !v.crossingId);
   const find = (d) => mine.find((v) => v.direction === d);
   let via;
   if (wire.direction === 'bidirectional') via = find('bi');
@@ -425,11 +532,54 @@ function resolveTarget(doc, sheetId, t, role, wire) {
         doc.taps.push(tap);
         return { kind: 'tap', tapId: tap.id };
       }
-      const mine = doc.taps.filter((x) => x.bundleId === b.id && x.wireId === wire.id);
+      // The wire's nearest tap anywhere along the chain (across subsystem edges).
+      const chain = bundleChain(doc, b.id);
+      const itemOf = (bundleId) => chain.items.findIndex((i) => i.bundle.id === bundleId);
+      const along = (bundleId, pos) => {
+        const it = chain.items[itemOf(bundleId)];
+        return it.offset + (it.reversed ? it.length - pos : pos);
+      };
+      const mine = doc.taps.filter((x) => itemOf(x.bundleId) >= 0 && x.wireId === wire.id);
       if (!mine.length) fail(`${wire.name} isn't in ${b.name}. Draw it onto the bundle to put it in first.`);
-      const near = mine.reduce((best, x) => (Math.abs(x.at - at) < Math.abs(best.at - at) ? x : best));
+      const here = along(b.id, at);
+      const near = mine.reduce((best, x) => (Math.abs(along(x.bundleId, x.at) - here) < Math.abs(along(best.bundleId, best.at) - here) ? x : best));
+      const run = (sheet, from, to) => doc.segments.push({ id: newId(), wireId: wire.id, sheetId: sheet, from, to });
+      const tapEp = (x) => ({ kind: 'tap', tapId: x.id });
+      // Walk from the nearest tap's bundle to this one, crossing each subsystem edge between.
+      let last = near;
+      const i1 = itemOf(b.id);
+      for (let i = itemOf(near.bundleId); i !== i1; i += Math.sign(i1 - i)) {
+        const step = Math.sign(i1 - i);
+        const P = chain.items[i];
+        const Q = chain.items[i + step];
+        const exitEnd = (step > 0) !== P.reversed ? 1 : 0;
+        const entryEnd = (step > 0) !== Q.reversed ? 0 : 1;
+        const out = { id: newId(), bundleId: P.bundle.id, wireId: wire.id, at: exitEnd ? P.length : 0 };
+        const into = { id: newId(), bundleId: Q.bundle.id, wireId: wire.id, at: entryEnd ? Q.length : 0 };
+        doc.taps.push(out, into);
+        run(P.bundle.sheetId, tapEp(last), tapEp(out));
+        const c = chain.joints[Math.min(i, i + step)].crossing;
+        const inward = c.outerId === P.bundle.id;
+        const placement = byId(doc.placements, c.placementId);
+        const via = {
+          id: newId(), wireId: wire.id, subsystemId: placement.objectId, crossingId: c.id,
+          direction: wire.direction === 'bidirectional' ? 'bi' : inward ? 'in' : 'out',
+          x: 0, y: 0, portSide: c.side, portOffset: c.offset,
+        };
+        doc.vias.push(via);
+        const port = { kind: 'port', placementId: placement.id, viaId: via.id };
+        const inside = { kind: 'via', viaId: via.id };
+        if (inward) {
+          run(placement.sheetId, tapEp(out), port);
+          run(placement.objectId, inside, tapEp(into));
+        } else {
+          run(placement.objectId, tapEp(out), inside);
+          run(placement.sheetId, port, tapEp(into));
+        }
+        last = into;
+      }
       doc.taps.push(tap);
-      doc.segments.push({ id: newId(), wireId: wire.id, sheetId, from: { kind: 'tap', tapId: near.id }, to: { kind: 'tap', tapId: tap.id } });
+      run(sheetId, tapEp(last), tapEp(tap));
       return { kind: 'tap', tapId: tap.id, pulledOut: true };
     }
     case 'tap': {
@@ -463,6 +613,8 @@ function sweep(doc) {
     doc.notes = doc.notes.filter((n) => sheetOk(n.sheetId));
     doc.vias = doc.vias.filter((v) => objectIds.has(v.subsystemId));
     doc.bundles = doc.bundles.filter((b) => sheetOk(b.sheetId));
+    doc.crossings = doc.crossings.filter((c) => byId(doc.bundles, c.outerId) && byId(doc.bundles, c.innerId) && byId(doc.placements, c.placementId));
+    doc.vias = doc.vias.filter((v) => !v.crossingId || byId(doc.crossings, v.crossingId));
     doc.taps = doc.taps.filter((t) => byId(doc.bundles, t.bundleId));
     const exists = (ep) => {
       if (ep.kind === 'module') return !!byId(doc.placements, ep.placementId);
@@ -507,6 +659,49 @@ function rename(doc, item, name, findExisting) {
   const other = findExisting(doc, clean);
   if (other && other !== item) fail(`${other.name} already exists.`);
   item.name = clean;
+}
+
+// Replace one bundle's taps with direct connections (see deleteBundle).
+function dissolveBundle(doc, bundle) {
+  const id = bundle.id;
+  for (const w of doc.wires) {
+    const taps = new Set(doc.taps.filter((t) => t.bundleId === id && t.wireId === w.id).map((t) => 't:' + t.id));
+    if (!taps.size) continue;
+    const edges = wireEdges(doc, w.id);
+    const inner = edges.filter((e) => taps.has(e.a) && taps.has(e.b));
+    const outer = edges.filter((e) => taps.has(e.a) !== taps.has(e.b));
+    // Group the taps joined by runs inside the bundle.
+    const group = new Map([...taps].map((t) => [t, t]));
+    const find = (t) => (group.get(t) === t ? t : find(group.get(t)));
+    for (const e of inner) group.set(find(e.a), find(e.b));
+    const added = [];
+    for (const root of new Set([...taps].map(find))) {
+      const ends = outer
+        .filter((e) => find(taps.has(e.a) ? e.a : e.b) === root)
+        .map((e) => ({ ep: taps.has(e.a) ? e.seg.to : e.seg.from, entering: taps.has(e.b), tap: taps.has(e.a) ? e.a : e.b }));
+      if (ends.length === 1) {
+        const [only] = ends;
+        const pos = pointAt(bundle.points, byId(doc.taps, only.tap.slice(2)).at);
+        const u = { id: newId(), sheetId: bundle.sheetId, x: Math.floor(pos.x), y: Math.floor(pos.y) };
+        doc.unknownLoads.push(u);
+        const end = { kind: 'unknown', unknownId: u.id };
+        added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: only.entering ? only.ep : end, to: only.entering ? end : only.ep });
+        continue;
+      }
+      if (ends.length < 2) continue;
+      // Directed: from where it entered to each place it left. Otherwise: from one end to the rest.
+      let hub = w.direction === 'directed' ? ends.find((x) => x.entering) : null;
+      hub ||= ends.find((x) => x.ep.kind !== 'unknown') || ends[0];
+      const rest = ends.filter((x) => x !== hub);
+      if (hub.ep.kind === 'unknown' && rest.length > 1) {
+        fail(`Can't remove ${bundle.name}: an unknown load feeds ${w.name} to several places through it. Promote the unknown load first.`);
+      }
+      for (const x of rest) added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: hub.ep, to: x.ep });
+    }
+    const gone = new Set([...inner, ...outer].map((e) => e.seg));
+    doc.segments = doc.segments.filter((s) => !gone.has(s)).concat(added);
+  }
+  doc.taps = doc.taps.filter((t) => t.bundleId !== id);
 }
 
 const commands = {
@@ -618,7 +813,7 @@ const commands = {
     if (a === b) fail('Nothing to merge.');
     if (a.direction !== b.direction) fail(`Make ${a.name} and ${b.name} the same direction before merging.`);
     for (const v of doc.vias.filter((v) => v.wireId === a.id)) {
-      const twin = doc.vias.find((o) => o.wireId === b.id && o.subsystemId === v.subsystemId && o.direction === v.direction);
+      const twin = doc.vias.find((o) => o.wireId === b.id && o.subsystemId === v.subsystemId && o.direction === v.direction && o.crossingId === v.crossingId);
       if (twin) remapVia(doc, v.id, twin.id);
       else v.wireId = b.id;
     }
@@ -634,7 +829,7 @@ const commands = {
       w.direction = 'bidirectional';
       for (const v of doc.vias.filter((v) => v.wireId === w.id)) {
         if (!byId(doc.vias, v.id)) continue;
-        const twin = doc.vias.find((o) => o !== v && o.wireId === w.id && o.subsystemId === v.subsystemId);
+        const twin = doc.vias.find((o) => o !== v && o.wireId === w.id && o.subsystemId === v.subsystemId && o.crossingId === v.crossingId);
         if (twin) {
           // A segment straight from the in-via to the out-via would become a self-loop; drop it.
           doc.segments = doc.segments.filter((s) => !(touchesVia(s, v.id) && touchesVia(s, twin.id)));
@@ -740,7 +935,10 @@ const commands = {
     if (h !== undefined) n.h = Math.max(1, Math.round(h));
   },
 
-  addBundle(doc, { sheetId, points }) {
+  // cross: optional [{ end (0 = A, 1 = B), placementId, side, offset }]: that end
+  // plugs into a subsystem box on this sheet, and the bundle carries on inside it
+  // from a bundle via near the subsystem sheet's left edge.
+  addBundle(doc, { sheetId, points, cross = [] }) {
     checkSheet(doc, sheetId);
     const clean = cleanPoints(points ?? []);
     if (clean.length < 2) fail('A bundle needs at least two points.');
@@ -749,6 +947,15 @@ const commands = {
     while (doc.bundles.some((b) => nameKey(b.name) === nameKey(`Bundle ${n}`))) n++;
     const b = { id: newId(), sheetId, name: `Bundle ${n}`, description: '', points: clean };
     doc.bundles.push(b);
+    for (const x of cross) {
+      const p = placementOn(doc, sheetId, x.placementId);
+      if (byId(doc.objects, p.objectId).type !== 'subsystem') fail('A bundle can only go into a subsystem.');
+      const k = doc.crossings.filter((c) => byId(doc.placements, c.placementId)?.objectId === p.objectId).length;
+      const y = 2 + 3 * k;
+      const inner = { id: newId(), sheetId: p.objectId, name: b.name, description: '', points: [{ x: 2, y }, { x: 10, y }] };
+      doc.bundles.push(inner);
+      doc.crossings.push({ id: newId(), outerId: b.id, outerEnd: x.end ? 1 : 0, innerId: inner.id, innerEnd: 0, placementId: p.id, side: SIDES.includes(x.side) ? x.side : 'left', offset: clamp01(x.offset) });
+    }
     return { id: b.id };
   },
 
@@ -758,67 +965,50 @@ const commands = {
   },
 
   // Move one corner or end; taps keep their distance from end A (clamped to the new length).
+  // An end plugged into a subsystem box slides around the box's edge instead.
   moveBundlePoint(doc, { id, index, x, y }) {
     const b = get(doc.bundles, id);
     if (!b.points[index]) fail('That bundle point no longer exists.');
+    const plugged = doc.crossings.find((c) => c.outerId === b.id && endIndex(b, c.outerEnd) === index);
+    if (plugged) {
+      Object.assign(plugged, nearestBoxSide(get(doc.placements, plugged.placementId), x, y));
+      return;
+    }
     b.points = movePoint(b.points, index, Math.round(x), Math.round(y));
     if (b.points.length < 2) fail('A bundle needs at least two points.');
     const length = pathLength(b.points);
     for (const t of doc.taps) if (t.bundleId === b.id) t.at = Math.min(t.at, length);
   },
 
+  // Name and description belong to the whole bundle, across subsystem edges.
   editBundle(doc, { id, name, description }) {
-    const b = get(doc.bundles, id);
-    if (name !== undefined) {
-      if (!String(name).trim()) fail('Names cannot be empty.');
-      b.name = String(name).trim();
+    get(doc.bundles, id);
+    if (name !== undefined && !String(name).trim()) fail('Names cannot be empty.');
+    const clean = description === undefined ? undefined : cleanRich(description);
+    for (const { bundle } of bundleChain(doc, id).items) {
+      if (name !== undefined) bundle.name = String(name).trim();
+      if (clean !== undefined) bundle.description = clean;
     }
-    if (description !== undefined) b.description = cleanRich(description);
   },
 
   // Deleting a bundle dissolves it: each wire that went through is reconnected
   // directly from where it went in to where it came out. A wire put in but never
   // pulled out ends at a new unknown load where it went in.
+  // Across subsystem edges, the whole bundle goes, and the vias that carried
+  // its wires across become ordinary vias.
   deleteBundle(doc, { id }) {
-    const bundle = get(doc.bundles, id);
-    for (const w of doc.wires) {
-      const taps = new Set(doc.taps.filter((t) => t.bundleId === id && t.wireId === w.id).map((t) => 't:' + t.id));
-      if (!taps.size) continue;
-      const edges = wireEdges(doc, w.id);
-      const inner = edges.filter((e) => taps.has(e.a) && taps.has(e.b));
-      const outer = edges.filter((e) => taps.has(e.a) !== taps.has(e.b));
-      // Group the taps joined by runs inside the bundle.
-      const group = new Map([...taps].map((t) => [t, t]));
-      const find = (t) => (group.get(t) === t ? t : find(group.get(t)));
-      for (const e of inner) group.set(find(e.a), find(e.b));
-      const added = [];
-      for (const root of new Set([...taps].map(find))) {
-        const ends = outer
-          .filter((e) => find(taps.has(e.a) ? e.a : e.b) === root)
-          .map((e) => ({ ep: taps.has(e.a) ? e.seg.to : e.seg.from, entering: taps.has(e.b), tap: taps.has(e.a) ? e.a : e.b }));
-        if (ends.length === 1) {
-          const [only] = ends;
-          const pos = pointAt(bundle.points, byId(doc.taps, only.tap.slice(2)).at);
-          const u = { id: newId(), sheetId: bundle.sheetId, x: Math.floor(pos.x), y: Math.floor(pos.y) };
-          doc.unknownLoads.push(u);
-          const end = { kind: 'unknown', unknownId: u.id };
-          added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: only.entering ? only.ep : end, to: only.entering ? end : only.ep });
-          continue;
-        }
-        if (ends.length < 2) continue;
-        // Directed: from where it entered to each place it left. Otherwise: from one end to the rest.
-        let hub = w.direction === 'directed' ? ends.find((x) => x.entering) : null;
-        hub ||= ends.find((x) => x.ep.kind !== 'unknown') || ends[0];
-        const rest = ends.filter((x) => x !== hub);
-        if (hub.ep.kind === 'unknown' && rest.length > 1) {
-          fail(`Can't remove ${bundle.name}: an unknown load feeds ${w.name} to several places through it. Promote the unknown load first.`);
-        }
-        for (const x of rest) added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: hub.ep, to: x.ep });
-      }
-      const gone = new Set([...inner, ...outer].map((e) => e.seg));
-      doc.segments = doc.segments.filter((s) => !gone.has(s)).concat(added);
+    get(doc.bundles, id);
+    const chain = bundleChain(doc, id);
+    for (const { bundle } of chain.items) dissolveBundle(doc, bundle);
+    const crossed = new Set(chain.joints.map((j) => j.crossing.id));
+    for (const v of doc.vias.filter((x) => crossed.has(x.crossingId))) {
+      delete v.crossingId;
+      const twin = doc.vias.find((o) => o !== v && !o.crossingId && o.wireId === v.wireId && o.subsystemId === v.subsystemId && o.direction === v.direction);
+      if (twin) remapVia(doc, v.id, twin.id);
     }
-    doc.bundles = doc.bundles.filter((b) => b.id !== id);
+    doc.crossings = doc.crossings.filter((c) => !crossed.has(c.id));
+    const pieces = new Set(chain.items.map((i) => i.bundle.id));
+    doc.bundles = doc.bundles.filter((b) => !pieces.has(b.id));
     sweep(doc);
     prune(doc, directedRoots(doc));
   },
@@ -826,6 +1016,7 @@ const commands = {
   // Slide a tap along its bundle (whole grid units, within its ends).
   moveTap(doc, { id, at }) {
     const t = get(doc.taps, id);
+    if (isCrossingTap(doc, id)) fail('That is where the wire crosses into a subsystem; it follows the bundle.');
     const length = pathLength(get(doc.bundles, t.bundleId).points);
     t.at = Math.min(Math.max(0, Math.round(Number(at) || 0)), length);
   },
@@ -834,9 +1025,25 @@ const commands = {
   deleteTap(doc, { id }) {
     const roots = directedRoots(doc);
     get(doc.taps, id);
+    if (isCrossingTap(doc, id)) fail('That is where the wire crosses into a subsystem; delete where it goes in or comes out instead.');
     doc.segments = doc.segments.filter((s) => !touchesTap(s, id));
     doc.taps = doc.taps.filter((t) => t.id !== id);
     prune(doc, roots);
+  },
+
+  // Move where a segment meets a module: a side and how far along it (0..1).
+  // Without one, the end picks the side facing the segment's other end.
+  setSegmentEnd(doc, { id, end, side, offset }) {
+    const seg = get(doc.segments, id);
+    const ep = seg[end === 'to' ? 'to' : 'from'];
+    if (ep.kind !== 'module') fail('Only wire ends on modules can be moved this way.');
+    if (side === undefined) {
+      delete ep.side;
+      delete ep.offset;
+    } else {
+      if (!SIDES.includes(side)) fail('Unknown side.');
+      Object.assign(ep, { side, offset: clamp01(offset) });
+    }
   },
 
   deleteNote(doc, { id }) {

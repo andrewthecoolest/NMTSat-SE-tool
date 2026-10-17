@@ -1,6 +1,5 @@
 // Derived data. Never stored; always computed from the document.
-import { byId, wireEdges, wireOrigin } from './model.js';
-import { pathLength } from './bundles.js';
+import { bundleChain, byId, insideBundle, wireEdges, wireOrigin } from './model.js';
 
 // Walk from `node` (arriving from `prev`) through vias and bundle taps until
 // reaching modules, unknown loads, or a via or tap with nothing beyond it.
@@ -125,26 +124,37 @@ export function viaDestinations(doc, via) {
     .map((n) => describeNode(doc, n).name);
 }
 
-// What a bundle carries. Each wire has a lane spanning the stretch it runs through;
-// its taps say where it goes in or out and what is beyond. The cuts (ends and
-// taps) split the bundle into sections, each listing the wires inside it.
+// What a bundle carries, along its whole length (across subsystem edges, see
+// bundleChain). Each wire has a lane spanning the stretch it runs through; its
+// taps say where it goes in or out and what is beyond. Positions here run from
+// end A of the whole chain. The cuts (ends, taps, subsystem edges) split it
+// into sections, each listing the wires inside it.
 export function bundleSummary(doc, bundleId) {
+  const chain = bundleChain(doc, bundleId);
   const bundle = byId(doc.bundles, bundleId);
-  const length = pathLength(bundle.points);
-  const mine = doc.taps.filter((t) => t.bundleId === bundleId);
+  const length = chain.length;
+  const itemOf = new Map(chain.items.map((it) => [it.bundle.id, it]));
+  const along = (t) => {
+    const it = itemOf.get(t.bundleId);
+    return it.offset + (it.reversed ? it.length - t.at : t.at);
+  };
+  const mine = doc.taps.filter((t) => itemOf.has(t.bundleId));
   const isMine = (ep) => ep.kind === 'tap' && mine.some((t) => t.id === ep.tapId);
   const lanes = [];
   for (const wire of doc.wires) {
-    const taps = mine.filter((t) => t.wireId === wire.id).sort((a, b) => a.at - b.at);
+    const taps = mine.filter((t) => t.wireId === wire.id).sort((a, b) => along(a) - along(b));
     if (!taps.length) continue;
     const edges = wireEdges(doc, wire.id);
     const directed = wire.direction === 'directed';
+    // Runs inside (tap to tap), plus the hops across subsystem edges.
+    const insideRun = (e) => insideBundle(doc, e.seg) && (isMine(e.seg.from) || isMine(e.seg.to));
     const inner = edges.filter((e) => isMine(e.seg.from) && isMine(e.seg.to))
-      .map((e) => ({ from: byId(doc.taps, e.seg.from.tapId).at, to: byId(doc.taps, e.seg.to.tapId).at }));
-    const waiting = !inner.length;
-    const points = taps.map((t) => {
+      .map((e) => ({ from: along(byId(doc.taps, e.seg.from.tapId)), to: along(byId(doc.taps, e.seg.to.tapId)) }));
+    const crossing = (t) => edges.some((e) => insideRun(e) && !(isMine(e.seg.from) && isMine(e.seg.to)) && (e.seg.from.tapId === t.id || e.seg.to.tapId === t.id));
+    const waiting = !inner.length && !taps.some(crossing);
+    const points = taps.filter((t) => !crossing(t)).map((t) => {
       const node = 't:' + t.id;
-      const outside = edges.filter((e) => (e.a === node || e.b === node) && !(isMine(e.seg.from) && isMine(e.seg.to))).map((e) => {
+      const outside = edges.filter((e) => (e.a === node || e.b === node) && !insideRun(e)).map((e) => {
         const entering = e.b === node;
         const dir = !directed ? 'any' : entering ? 'up' : 'down';
         const names = terminals(edges, entering ? e.a : e.b, node, dir).map((n) => describeNode(doc, n));
@@ -152,20 +162,25 @@ export function bundleSummary(doc, bundleId) {
       });
       // Directed wires go 'in' or 'out'; a bidirectional wire just meets the bundle there.
       const role = waiting ? 'in, not pulled out' : !directed ? '' : outside.some((o) => o.entering) ? 'in' : outside.length ? 'out' : '';
-      return { tap: t, at: t.at, outside, role, open: isOpenTap(doc, t) };
+      return { tap: t, at: along(t), outside, role, open: isOpenTap(doc, t) };
     });
-    lanes.push({ wire, points, inner, min: taps[0].at, max: taps[taps.length - 1].at, waiting });
+    const ats = taps.map(along);
+    lanes.push({ wire, points, inner, min: Math.min(...ats), max: Math.max(...ats), waiting });
   }
-  const cuts = [...new Set([0, length, ...mine.map((t) => t.at)])].sort((a, b) => a - b);
+  const edgesAt = chain.joints.map((j) => ({ at: j.at, name: byId(doc.objects, byId(doc.placements, j.crossing.placementId)?.objectId)?.name ?? '?' }));
+  const cuts = [...new Set([0, length, ...edgesAt.map((x) => x.at), ...lanes.flatMap((l) => l.points.map((p) => p.at))])].sort((a, b) => a - b);
   const cutLabel = (at) => {
     if (at === 0) return 'End A';
     if (at === length) return 'End B';
-    return lanes.flatMap((l) => l.points.filter((p) => p.at === at).map((p) => (p.role ? `${l.wire.name} ${p.role}` : l.wire.name))).join(', ');
+    const names = lanes.flatMap((l) => l.points.filter((p) => p.at === at).map((p) => (p.role ? `${l.wire.name} ${p.role}` : l.wire.name)));
+    for (const x of edgesAt) if (x.at === at) names.push(`${x.name} edge`);
+    return names.join(', ');
   };
   const sections = [];
   for (let i = 1; i < cuts.length; i++) {
     const [a, b] = [cuts[i - 1], cuts[i]];
     sections.push({ from: a, to: b, wires: lanes.filter((l) => !l.waiting && l.min <= a && l.max >= b).map((l) => l.wire) });
   }
-  return { bundle, length, lanes, cuts, sections, cutLabel };
+  const sheets = [...new Set(chain.items.map((it) => it.bundle.sheetId))];
+  return { bundle, length, lanes, cuts, sections, cutLabel, edges: edgesAt, sheets };
 }

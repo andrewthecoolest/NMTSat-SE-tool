@@ -16,12 +16,13 @@ Link: https://andrewthecoolest.github.io/NMTSat-SE-tool/
 | Bundle | B | Click corner points to lay out a bundle (a bus that groups wires). Double-click or press Enter to finish; Esc cancels. |
 | Text | T | Drag a text box (or click for a default size), then type. Drag its corner handle to resize it. Double-click it to edit; clear its text to delete it. |
 
-- Click the **i** on a box, or click a wire, to see its details.
+- To see and edit a box's details, hover it and click its preview (for a subsystem, click the details column; clicking its sheet opens it). Double-clicking a module also works. Click a wire for its details.
+- Drag a wire's end (Select tool) to move where it attaches around a module; on a subsystem, this moves its port.
 - Descriptions and text boxes can be formatted: select some text, then use **B** (bold, or Ctrl/Cmd+B), **Size**, or the color picker (**A** reapplies the current color). **Clear** removes formatting.
 - Reusing a name refers to the same object or wire.
-- **Bundles:** with the Wire tool, draw a wire onto a bundle to put it in. To pull one out, click the bundle with the Wire tool, type the wire's name, then click where it goes; it runs inside the bundle from where it went in. With the Select tool, drag a bundle to move it, drag its corner handles to reshape it, drag a wire's dot along it to move where that wire goes in or out, and double-click it for its info. Hover it to see the wires inside. Deleting a bundle reconnects its wires directly.
+- **Bundles:** with the Wire tool, draw a wire onto a bundle to put it in. To pull one out, click the bundle with the Wire tool, type the wire's name, then click where it goes; it runs inside the bundle from where it went in. With the Select tool, drag a bundle to move it, drag its corner handles to reshape it, drag a wire's dot along it to move where that wire goes in or out, and double-click it for its info. Hover its label to see the wires inside. While laying out a bundle, click a subsystem box to run it into that subsystem: it carries on inside from a bundle via, and wires put in outside can be pulled out inside (or the other way round). Deleting a bundle reconnects its wires directly.
 - Giving a box a color tints its body lightly.
-- Rest the pointer in the middle of a box (the faint dashed area that appears when you hover it), or on a bundle's label, for half a second to preview it (read-only). Edges, the **i** button and wire ends never open a preview, so wiring isn't interrupted. A subsystem shows what's inside, with its description, contents and boundary wires alongside. A module shows its description and connections. Move the pointer away to close the preview, or click it to open the subsystem (or the module's info).
+- Rest the pointer on a box (anywhere but its outer edge; a faint dashed outline shows the area) or on a bundle's label to preview it (read-only). The thin outer edge, where wire ends are, never opens a preview, so wiring isn't interrupted. A subsystem shows what's inside, with its description, contents and boundary wires alongside. A module shows its description and connections. Move the pointer away to close the preview.
 - Use the breadcrumb at the top left to go back up a level.
 - Select something (or box-select several things) and press Delete to remove it. Undo brings it back.
 
