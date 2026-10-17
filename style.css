@@ -86,10 +86,22 @@ main { position: relative; flex: 1; overflow: hidden; }
 #panel .row { display: flex; gap: 8px; align-items: center; }
 #panel .row input:not([type="color"]) { flex: 1; }
 #panel .name { font-weight: bold; }
-#panel .description { width: 100%; min-height: 40vh; resize: vertical; }
+#panel .description { min-height: 40vh; }
 #panel .orient { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px; background: #f9fafb; border: 1px solid var(--line); }
 #panel .orient p { flex-basis: 100%; }
 #panel footer { display: flex; gap: 8px; margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+/* Rich text editor: toolbar plus an editable area. */
+.rich-toolbar { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 4px; }
+:is(#panel, #noteDialog) .rich-toolbar :is(button, select) { font: 13px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 3px 8px; height: 26px; }
+:is(#panel, #noteDialog) .rich-toolbar select { border: 1px solid #d1d5db; border-radius: 4px; background: #fff; color: var(--ink); }
+:is(#panel, #noteDialog) .rich-toolbar input[type="color"] { width: 30px; height: 26px; padding: 1px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; }
+.rich-bold { font-weight: bold !important; }
+.rich-paint span { font-weight: bold; border-bottom: 3px solid var(--paint, var(--ink)); line-height: 1; }
+.rich-content { width: 100%; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; resize: vertical; cursor: text; user-select: text; }
+.rich-content:focus { outline: 2px solid #93c5fd; outline-offset: -1px; }
+.rich-content:empty::before { content: attr(data-placeholder); color: var(--muted); }
+dialog .rich-content { min-height: 120px; max-height: 50vh; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
 
 .field { display: block; margin-bottom: 8px; }
 .field span { display: block; font-size: 12px; color: var(--muted); }
@@ -112,6 +124,7 @@ main { position: relative; flex: 1; overflow: hidden; }
 }
 
 dialog { border: 1px solid var(--line); border-radius: 6px; padding: 16px; width: min(340px, calc(100% - 32px)); }
+#noteDialog { width: min(520px, calc(100% - 32px)); }
 dialog h2 { margin: 0 0 12px; font-size: 15px; }
 dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 
@@ -136,9 +149,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .unknown path { stroke: var(--ink); stroke-width: 2; }
 .unknown.selected rect { stroke: var(--ink); stroke-dasharray: 2 2; }
 
-.note rect { fill: transparent; }
-.note text { font-size: 14px; fill: var(--ink); white-space: pre; }
-.note.selected rect { stroke: var(--ink); stroke-dasharray: 2 2; }
+.note .frame { fill: transparent; }
+.note foreignObject { pointer-events: none; }
+.note.selected .frame { stroke: var(--ink); stroke-dasharray: 2 2; }
+/* Shared by text boxes on the canvas and the hidden copy used to measure them. */
+.note-body { box-sizing: border-box; padding: 3px 5px; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .via circle { fill: #fff; stroke-width: 2; }
 .via.selected circle { stroke-width: 4; }

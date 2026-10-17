@@ -1,6 +1,7 @@
 // SVG rendering of one sheet. Pure: returns markup for the current state.
 import { byId } from './model.js';
 import { isOpenVia, viaDestinations } from './derive.js';
+import { richToHtml } from './richtext.js';
 
 export const G = 20; // pixels per grid unit
 const VIA_R = 8;
@@ -183,17 +184,14 @@ function unknownMarkup(u, selected) {
   </g>`;
 }
 
-// A free text note: one line of SVG text per line typed, top-left at (x, y).
+// A text box: rich text wrapped inside a resizable box (text beyond it is clipped).
 function noteMarkup(n, selected) {
-  const lines = n.text.split('\n');
-  const x = n.x * G;
-  const y = n.y * G;
-  const w = Math.max(...lines.map((l) => l.length)) * 8 + 8;
-  const h = lines.length * 18 + 6;
-  const tspans = lines.map((l, i) => `<tspan x="${x + 4}" y="${y + 16 + i * 18}">${esc(l)}</tspan>`).join('');
+  const r = pxRect(n);
+  const handle = selected ? `<rect class="handle" data-kind="noteResize" data-id="${n.id}" x="${r.x + r.w - 5}" y="${r.y + r.h - 5}" width="10" height="10"/>` : '';
   return `<g class="note${selected ? ' selected' : ''}" data-kind="note" data-id="${n.id}">
-    <rect x="${x}" y="${y}" width="${w}" height="${h}"/>
-    <text>${tspans}</text>
+    <rect class="frame" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"/>
+    <foreignObject x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"><div class="note-body">${richToHtml(n.text)}</div></foreignObject>
+    ${handle}
   </g>`;
 }
 

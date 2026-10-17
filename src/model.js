@@ -1,5 +1,6 @@
 // Document model. Every change goes through apply(doc, command), which works on
 // a copy and only returns the new document if it still satisfies every invariant.
+import { isRich, normalize, plainText, runsOf } from './richtext.js';
 
 export const SCHEMA_VERSION = 1;
 const DEFAULT_OBJECT_COLOR = '#334155';
@@ -11,11 +12,23 @@ export function emptyDoc() {
   return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [] };
 }
 
-// Documents saved before text notes existed have no notes list.
+// Older documents: no notes list, or notes without a size (they used to size
+// themselves to their text: about 8px per character and 18px per line).
 export function upgrade(data) {
-  if (data && typeof data === 'object' && !('notes' in data)) data.notes = [];
+  if (!data || typeof data !== 'object') return data;
+  if (!('notes' in data)) data.notes = [];
+  if (!Array.isArray(data.notes)) return data;
+  for (const n of data.notes) {
+    if (!n || typeof n !== 'object' || ('w' in n && 'h' in n)) continue;
+    const lines = plainText(n.text).split('\n');
+    n.w = Math.max(1, Math.ceil((Math.max(...lines.map((l) => l.length)) * 8 + 12) / 20));
+    n.h = Math.max(1, Math.ceil((lines.length * 19 + 8) / 20));
+  }
   return data;
 }
+
+// Rich text from the UI, stored in its simplest form.
+const cleanRich = (v) => (isRich(v) ? normalize(runsOf(v)) : fail('That text could not be read.'));
 
 export const nameKey = (name) => String(name).trim().toLowerCase();
 export const newId = () => Math.random().toString(36).slice(2, 10);
@@ -147,6 +160,7 @@ function check(doc) {
     if (objectNames.has(nameKey(o.name))) errors.push(`Two objects are named ${o.name}.`);
     objectNames.add(nameKey(o.name));
     if (o.type !== 'module' && o.type !== 'subsystem') errors.push(`${o.name} has an unknown type.`);
+    if (!isRich(o.description)) errors.push(`${o.name} has an invalid description.`);
     if (!doc.placements.some((p) => p.objectId === o.id)) errors.push(`${o.name} is not placed on any sheet.`);
   }
   for (const p of doc.placements) {
@@ -160,7 +174,9 @@ function check(doc) {
     if (!sheetOk(u.sheetId) || !finite(u.x, u.y)) errors.push('An unknown load is on a missing sheet.');
   }
   for (const n of doc.notes) {
-    if (!sheetOk(n.sheetId) || !finite(n.x, n.y) || typeof n.text !== 'string') errors.push('A text note is invalid.');
+    if (!sheetOk(n.sheetId) || !finite(n.x, n.y, n.w, n.h) || n.w < 1 || n.h < 1 || !isRich(n.text) || !plainText(n.text).trim()) {
+      errors.push('A text note is invalid.');
+    }
   }
   if (errors.length) return errors;
 
@@ -170,6 +186,7 @@ function check(doc) {
     if (wireNames.has(nameKey(w.name))) errors.push(`Two wires are named ${w.name}.`);
     wireNames.add(nameKey(w.name));
     if (w.direction !== 'directed' && w.direction !== 'bidirectional') errors.push(`${w.name} has an unknown direction.`);
+    if (!isRich(w.description)) errors.push(`${w.name} has an invalid description.`);
   }
   const viaKeys = new Set();
   for (const v of doc.vias) {
@@ -508,14 +525,14 @@ const commands = {
     const o = get(doc.objects, id);
     if (name !== undefined) rename(doc, o, name, objectByName);
     if (color !== undefined) o.color = color;
-    if (description !== undefined) o.description = description;
+    if (description !== undefined) o.description = cleanRich(description);
   },
 
   editWire(doc, { id, name, color, description }) {
     const w = get(doc.wires, id);
     if (name !== undefined) rename(doc, w, name, wireByName);
     if (color !== undefined) w.color = color;
-    if (description !== undefined) w.description = description;
+    if (description !== undefined) w.description = cleanRich(description);
   },
 
   mergeObjects(doc, { fromId, intoId }) {
@@ -632,23 +649,30 @@ const commands = {
     prune(doc, roots);
   },
 
-  addNote(doc, { sheetId, x, y, text }) {
+  addNote(doc, { sheetId, x, y, w = 8, h = 2, text }) {
     checkSheet(doc, sheetId);
-    if (!String(text ?? '').trim()) fail('Type some text.');
-    const n = { id: newId(), sheetId, x: Math.round(x), y: Math.round(y), text: String(text) };
+    const clean = cleanRich(text ?? '');
+    if (!plainText(clean).trim()) fail('Type some text.');
+    const n = { id: newId(), sheetId, ...snapRect(x, y, w, h), text: clean };
     doc.notes.push(n);
     return { id: n.id };
   },
 
-  moveNote(doc, { id, x, y }) {
-    Object.assign(get(doc.notes, id), { x: Math.round(x), y: Math.round(y) });
+  moveNote(doc, { id, x, y, w, h }) {
+    const n = get(doc.notes, id);
+    Object.assign(n, snapRect(x ?? n.x, y ?? n.y, w ?? n.w, h ?? n.h));
   },
 
-  // Clearing a note's text deletes it.
-  editNote(doc, { id, text }) {
+  // Clearing a note's text deletes it. `h` optionally resizes it to fit.
+  editNote(doc, { id, text, h }) {
     const n = get(doc.notes, id);
-    if (String(text ?? '').trim()) n.text = String(text);
-    else doc.notes = doc.notes.filter((x) => x !== n);
+    const clean = cleanRich(text ?? '');
+    if (!plainText(clean).trim()) {
+      doc.notes = doc.notes.filter((x) => x !== n);
+      return;
+    }
+    n.text = clean;
+    if (h !== undefined) n.h = Math.max(1, Math.round(h));
   },
 
   deleteNote(doc, { id }) {

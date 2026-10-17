@@ -15,7 +15,7 @@
       <button data-tool="subsystem" title="Drag to draw a subsystem (S)">Subsystem</button>
       <button data-tool="unknown" title="Click to place an unknown load (U)">Unknown load</button>
       <button data-tool="wire" title="Drag from one thing to another to draw a wire (W)">Wire</button>
-      <button data-tool="text" title="Click to add text to the sheet (T)">Text</button>
+      <button data-tool="text" title="Drag a text box, or click for a default size (T)">Text</button>
     </div>
     <div class="group">
       <button id="undo" title="Undo (Ctrl/Cmd+Z)">Undo</button>
@@ -66,8 +66,8 @@
   <dialog id="noteDialog">
     <form method="dialog">
       <h2>Text</h2>
-      <label class="field"><span>Text</span><textarea name="text" rows="4"></textarea></label>
-      <p class="muted">Clear the text to delete it.</p>
+      <div class="field"><span>Text</span><div id="noteEditor"></div></div>
+      <p class="muted">Select text, then use B, Size or the color to format it. Clear all the text to delete the box.</p>
       <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
     </form>
   </dialog>

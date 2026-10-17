@@ -1,6 +1,7 @@
 // The info view: a large centered dialog laid out like a man page.
 import { byId, nodeName, objectByName, wireByName } from './model.js';
 import { appearsOn, connections, sheetName, subsystemSummary, wireSummary } from './derive.js';
+import { richEditor } from './richtext.js';
 
 export function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -22,8 +23,8 @@ const swatch = (color) => h('span', { class: 'swatch', style: `background:${colo
 // Editable fields use defaultValue so unsaved edits can be detected on close.
 const textInput = (value, onchange, props = {}) => h('input', { defaultValue: value, onchange, autocomplete: 'off', ...props });
 const colorInput = (value, onchange) => h('input', { type: 'color', defaultValue: value, onchange, title: 'Color' });
-const descriptionInput = (value, onchange) =>
-  h('textarea', { class: 'description', defaultValue: value, onchange, placeholder: 'No description yet.', spellcheck: true });
+const descriptionInput = (app, value, command) =>
+  richEditor({ value, className: 'description', placeholder: 'No description yet.', onchange: (description) => !!app.edit(command(description)) });
 
 // Save a field without rebuilding the page, so a click that blurred the field
 // (say, on Delete) still lands on its button.
@@ -35,9 +36,10 @@ function save(app, e, cmd) {
 
 // Commit any field whose edit hasn't fired a change event yet (e.g. closed with Esc).
 export function flushEdits(el) {
-  for (const field of el.querySelectorAll('input, textarea')) {
+  for (const field of el.querySelectorAll('input:not(.rich *), textarea')) {
     if (field.value !== field.defaultValue) field.dispatchEvent(new Event('change'));
   }
+  for (const editor of el.querySelectorAll('.rich')) editor.flush();
 }
 
 // app: { doc, subject, sheetId, commit, preview, open, close, refresh, toast, goToSheet,
@@ -97,7 +99,7 @@ function objectPage(app) {
     section('NAME', h('div', { class: 'row' },
       textInput(obj.name, rename, { class: 'name' }),
       colorInput(obj.color, (e) => save(app, e, { type: 'editObject', id: obj.id, color: e.target.value })))),
-    section('DESCRIPTION', descriptionInput(obj.description, (e) => save(app, e, { type: 'editObject', id: obj.id, description: e.target.value }))),
+    section('DESCRIPTION', descriptionInput(app, obj.description, (description) => ({ type: 'editObject', id: obj.id, description }))),
   ];
 
   if (obj.type === 'module') {
@@ -170,7 +172,7 @@ function wirePage(app) {
     section('NAME', h('div', { class: 'row' },
       textInput(wire.name, rename, { class: 'name' }),
       colorInput(wire.color, (e) => save(app, e, { type: 'editWire', id: wire.id, color: e.target.value })))),
-    section('DESCRIPTION', descriptionInput(wire.description, (e) => save(app, e, { type: 'editWire', id: wire.id, description: e.target.value }))),
+    section('DESCRIPTION', descriptionInput(app, wire.description, (description) => ({ type: 'editWire', id: wire.id, description }))),
     section('DIRECTION',
       h('select', { onchange: setDirection },
         h('option', { value: 'directed', selected: wire.direction === 'directed' || subject.orienting }, 'Directed'),

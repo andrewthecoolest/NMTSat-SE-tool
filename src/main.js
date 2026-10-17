@@ -4,7 +4,9 @@ import { sheetName, sheetPath, status } from './derive.js';
 import { G, nearestSide, renderSheet } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
+import { plainText, richEditor, richToHtml } from './richtext.js';
 
+const NOTE_BOX = { w: 8, h: 2 }; // default text box size, in grid units
 const WIRE_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#4b5563'];
 
 const svg = document.getElementById('canvas');
@@ -15,6 +17,7 @@ const toastEl = document.getElementById('toast');
 const objectDialog = document.getElementById('objectDialog');
 const wireDialog = document.getElementById('wireDialog');
 const noteDialog = document.getElementById('noteDialog');
+const noteEditorEl = document.getElementById('noteEditor');
 
 let doc = emptyDoc();
 let past = [];
@@ -124,7 +127,7 @@ function render(keepPanel = false) {
 function renderCanvas() {
   let overlay = '';
   if (drag?.type === 'box') {
-    const r = boxFrom(drag.start, drag.end);
+    const r = boxFrom(drag.start, drag.end, tool === 'text' ? NOTE_BOX : undefined);
     overlay = `<rect class="ghost" x="${r.x * G}" y="${r.y * G}" width="${r.w * G}" height="${r.h * G}"/>`;
   }
   if (drag?.type === 'wire') {
@@ -254,12 +257,36 @@ async function askWire(name) {
   return pending;
 }
 
-// Ask for a note's text; an existing note is edited (and deleted if cleared).
-async function askNote(note, at) {
-  const answer = await ask(noteDialog, { text: note?.text ?? '' });
-  if (!answer) return;
-  if (note) commit({ type: 'editNote', id: note.id, text: answer.text });
-  else if (answer.text.trim()) commit({ type: 'addNote', sheetId: currentSheet(), x: at.x, y: at.y, text: answer.text });
+// Grid rows a text box `w` units wide needs to show all of `text`.
+function noteRows(text, w) {
+  const probe = h('div', { class: 'note-body' });
+  probe.innerHTML = richToHtml(text);
+  Object.assign(probe.style, { position: 'absolute', visibility: 'hidden', left: '-10000px', top: '0', width: `${w * G}px` });
+  document.body.append(probe);
+  const px = probe.getBoundingClientRect().height;
+  probe.remove();
+  return Math.ceil(px / G);
+}
+
+// Ask for a text box's text; an existing box is edited (and deleted if cleared).
+// The box grows taller if the text doesn't fit; it never shrinks on its own.
+async function askNote(note, box) {
+  const editor = richEditor({ value: note?.text ?? '' });
+  noteEditorEl.replaceChildren(editor);
+  const pending = ask(noteDialog, {});
+  editor.focusEditor();
+  if (!(await pending)) return;
+  const text = editor.value;
+  const { w, h: rows } = note ?? box;
+  const fit = Math.max(rows, noteRows(text, w));
+  if (note) commit({ type: 'editNote', id: note.id, text, h: fit });
+  else if (plainText(text).trim()) {
+    const r = commit({ type: 'addNote', sheetId: currentSheet(), ...box, h: fit, text });
+    if (r) {
+      selection = { kind: 'note', id: r.id };
+      render();
+    }
+  }
 }
 
 // ---- pointer interaction ----------------------------------------------------
@@ -276,12 +303,12 @@ function elementAt(e) {
 }
 
 // Grid rectangle spanned by a drag; a plain click gives a default-sized box.
-function boxFrom(a, b) {
+function boxFrom(a, b, fallback = { w: 6, h: 3 }) {
   const x = Math.round(Math.min(a.x, b.x) / G);
   const y = Math.round(Math.min(a.y, b.y) / G);
   const w = Math.round(Math.max(a.x, b.x) / G) - x;
   const h = Math.round(Math.max(a.y, b.y) / G) - y;
-  return w >= 1 && h >= 1 ? { x, y, w, h } : { x, y, w: 6, h: 3 };
+  return w >= 1 && h >= 1 ? { x, y, w, h } : { x, y, ...fallback };
 }
 
 // What a wire end dropped on `el` at world point `pt` refers to.
@@ -318,6 +345,8 @@ function startSelect(el, pt) {
     render();
   } else if (kind === 'resize') {
     drag = { type: 'resize', id };
+  } else if (kind === 'noteResize') {
+    drag = { type: 'resizeNote', id };
   } else if (kind === 'placement') {
     const p = byId(doc.placements, id);
     if (double && byId(doc.objects, p.objectId).type === 'subsystem') return goTo([...path, p.objectId]);
@@ -360,6 +389,10 @@ function dragCommand(d, pt) {
   }
   if (d.type === 'moveUnknown') return { type: 'moveUnknown', id: d.id, x: gx - d.dx, y: gy - d.dy };
   if (d.type === 'moveNote') return { type: 'moveNote', id: d.id, x: gx - d.dx, y: gy - d.dy };
+  if (d.type === 'resizeNote') {
+    const n = byId(doc.notes, d.id);
+    return { type: 'moveNote', id: d.id, w: gx - n.x, h: gy - n.y };
+  }
   if (d.type === 'moveVia') return { type: 'moveVia', id: d.id, x: gx, y: gy };
   if (d.type === 'movePort') return { type: 'movePort', id: d.id, ...nearestSide(byId(doc.placements, d.placementId), pt) };
   return null;
@@ -380,14 +413,12 @@ svg.addEventListener('pointerdown', (e) => {
     drag = { type: 'pan', sx: e.clientX, sy: e.clientY, view: { ...view() } };
   } else if (tool === 'select') {
     startSelect(el, pt);
-  } else if (tool === 'module' || tool === 'subsystem') {
+  } else if (tool === 'module' || tool === 'subsystem' || tool === 'text') {
     drag = { type: 'box', start: pt, end: pt };
   } else if (tool === 'unknown') {
     commit({ type: 'addUnknown', sheetId: currentSheet(), x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) });
   } else if (tool === 'wire') {
     drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt };
-  } else if (tool === 'text') {
-    drag = { type: 'text' };
   }
 });
 
@@ -411,8 +442,10 @@ svg.addEventListener('pointerup', async (e) => {
   if (!d) return;
   const pt = toWorld(e);
 
-  if (d.type === 'text') {
-    askNote(null, { x: Math.round(pt.x / G), y: Math.round(pt.y / G) });
+  if (d.type === 'box' && tool === 'text') {
+    const box = boxFrom(d.start, pt, NOTE_BOX);
+    renderCanvas();
+    askNote(null, box);
   } else if (d.cmd) {
     const moved = preview && JSON.stringify(preview) !== JSON.stringify(doc);
     preview = null;
