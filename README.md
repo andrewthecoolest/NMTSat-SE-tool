@@ -2,6 +2,8 @@
 
 A browser tool for mapping a satellite's architecture: subsystems, modules, and the wires between them.
 
+Link: https://andrewthecoolest.github.io/NMTSat-SE-tool/
+
 ## Use
 
 | Tool | Key | What it does |
