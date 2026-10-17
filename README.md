@@ -18,7 +18,7 @@ Link: https://andrewthecoolest.github.io/NMTSat-SE-tool/
 - Click the **i** on a box, or click a wire, to see its details.
 - Descriptions and text boxes can be formatted: select some text, then use **B** (bold, or Ctrl/Cmd+B), **Size**, or the color picker (**A** reapplies the current color). **Clear** removes formatting.
 - Reusing a name refers to the same object or wire.
-- Rest the pointer on a subsystem for half a second to preview what's inside it. Move the pointer away to close the preview, or click it to open that subsystem.
+- Rest the pointer on a box for half a second to preview it (read-only). A subsystem shows what's inside, with its description, contents and boundary wires alongside. A module shows its description and connections. Move the pointer away to close the preview, or click it to open the subsystem (or the module's info).
 - Use the breadcrumb at the top left to go back up a level.
 - Select something (or box-select several things) and press Delete to remove it. Undo brings it back.
 

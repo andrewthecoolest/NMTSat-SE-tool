@@ -181,10 +181,23 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 }
 #preview[hidden] { display: none; }
 #preview.closing { transition-duration: 0.2s; transition-timing-function: ease-in; pointer-events: none; }
-#preview header { flex: none; display: flex; align-items: center; gap: 12px; height: 32px; padding: 0 12px; border-bottom: 1px solid var(--line); font-weight: bold; white-space: nowrap; overflow: hidden; }
-#preview .hint { font-weight: normal; font-size: 12px; color: var(--muted); }
-#preview svg { flex: 1; display: block; width: 100%; min-height: 0; pointer-events: none; }
-#preview .empty { flex: 1; display: grid; place-items: center; color: var(--muted); }
+#preview[data-type="module"] { cursor: pointer; }
+#preview header { flex: none; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
+#preview header .swatch { flex: none; margin: 0; }
+#preview header .name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
+#preview .hint { margin-left: 4px; font-size: 12px; color: var(--muted); }
+/* Subsystem: the sheet on the left, read-only details on the right (35%, see SIDE in preview.js). */
+#preview .split { flex: 1; display: flex; min-height: 0; }
+#preview .split > svg, #preview .split > .empty { flex: 1 1 65%; min-width: 0; }
+#preview svg { display: block; height: 100%; pointer-events: none; }
+#preview .empty { display: grid; place-items: center; color: var(--muted); }
+#preview .details { overflow-y: auto; padding: 4px 14px 14px; font-size: 13px; }
+#preview .split > .details { flex: 0 0 35%; min-width: 0; border-left: 1px solid var(--line); background: #fafafa; }
+#preview .card-body { flex: 1; min-height: 0; }
+#preview .details h3 { margin: 12px 0 4px; font: bold 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 0.04em; color: var(--muted); }
+#preview .details ul { margin: 0; padding: 0; list-style: none; }
+#preview .details li, #preview .details p { margin: 0 0 3px; overflow-wrap: anywhere; }
+#preview .rich-view { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { #preview, #preview.closing { transition-duration: 0s; } }
 
 .ghost { fill: none; stroke: var(--muted); stroke-dasharray: 4 3; pointer-events: none; }

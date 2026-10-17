@@ -39,7 +39,16 @@ const hoverPreview = createPreview({
   getDoc: () => doc,
   boxRect: (id) => svg.querySelector(`[data-kind="placement"][data-id="${id}"] > .body`)?.getBoundingClientRect() ?? null,
   parentName: () => sheetName(doc, currentSheet()),
-  onOpen: (id) => goTo([...path, id]),
+  // Clicking a preview enters the subsystem, or opens the module's info view.
+  onOpen: (placementId) => {
+    const p = byId(doc.placements, placementId);
+    const obj = p && byId(doc.objects, p.objectId);
+    if (!obj) return;
+    if (obj.type === 'subsystem') return goTo([...path, obj.id]);
+    selection = { kind: 'placement', id: p.id };
+    subject = { kind: 'object', id: obj.id, placementId: p.id };
+    render();
+  },
 });
 
 const currentSheet = () => path[path.length - 1];
@@ -474,11 +483,10 @@ function dragCommand(d, pt) {
   return null;
 }
 
-// The subsystem placement under the pointer, if any (for the hover preview).
-function hoveredSubsystem(e) {
+// The box (module or subsystem placement) under the pointer, if any, for the hover preview.
+function hoveredBox(e) {
   const box = e.target.closest?.('[data-kind="placement"]');
-  const p = box && byId(doc.placements, box.dataset.id);
-  return p && byId(doc.objects, p.objectId)?.type === 'subsystem' ? p.id : null;
+  return box && byId(doc.placements, box.dataset.id) ? box.dataset.id : null;
 }
 
 svg.addEventListener('pointerdown', (e) => {
@@ -516,7 +524,7 @@ svg.addEventListener('pointerdown', (e) => {
 svg.addEventListener('pointermove', (e) => {
   const pt = toWorld(e);
   if (!drag) {
-    hoverPreview.hover(tool === 'select' && !e.buttons && !spaceDown ? hoveredSubsystem(e) : null);
+    hoverPreview.hover(tool === 'select' && !e.buttons && !spaceDown ? hoveredBox(e) : null);
     if (wiring) {
       wiring.end = pt;
       wiring.hover = targetAt(elementAt(e), pt);
