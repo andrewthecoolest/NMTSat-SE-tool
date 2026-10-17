@@ -102,7 +102,9 @@ function legSide(s, toward) {
   return toward.x < s.point.x ? 'left' : 'right';
 }
 
-function anchor(s, toward) {
+// `shift` slides an end along a box side (to keep it off other wires); ends at
+// points (ports, vias, taps, ends placed by hand) don't move.
+function anchor(s, toward, shift = 0) {
   if (s.point) {
     const side = s.side || (s.leg ? legSide(s, toward) : dominantSide(s.point, toward));
     const [nx, ny] = NORMAL[side];
@@ -114,29 +116,34 @@ function anchor(s, toward) {
   const dy = toward.y - c.y;
   if (Math.abs(dx) * r.h >= Math.abs(dy) * r.w) {
     const inset = Math.min(G / 2, r.h / 2);
-    return { x: dx >= 0 ? r.x + r.w : r.x, y: clamp(toward.y, r.y + inset, r.y + r.h - inset), side: dx >= 0 ? 'right' : 'left' };
+    const [lo, hi] = [r.y + inset, r.y + r.h - inset];
+    return { x: dx >= 0 ? r.x + r.w : r.x, y: clamp(clamp(toward.y, lo, hi) + shift, lo, hi), side: dx >= 0 ? 'right' : 'left' };
   }
   const inset = Math.min(G / 2, r.w / 2);
-  return { x: clamp(toward.x, r.x + inset, r.x + r.w - inset), y: dy >= 0 ? r.y + r.h : r.y, side: dy >= 0 ? 'bottom' : 'top' };
+  const [lo, hi] = [r.x + inset, r.x + r.w - inset];
+  return { x: clamp(clamp(toward.x, lo, hi) + shift, lo, hi), y: dy >= 0 ? r.y + r.h : r.y, side: dy >= 0 ? 'bottom' : 'top' };
 }
 
-// Orthogonal route between two anchors: step out from each side, then connect.
-// Of the possible right-angle joins, prefer one that doesn't double back toward
-// either end's box (which happens when an end faces away from the other).
-function route(a, b) {
+// Orthogonal routes between two anchors: step out from each side, then connect.
+// Returns the possible right-angle joins, preferring ones that don't double back
+// toward either end's box (which happens when an end faces away from the other).
+// Each join is { free, make(shift) }: a free join has a middle leg that can slide
+// sideways by `shift` (to keep it off other wires).
+function routeOptions(a, b) {
   const horizontal = (s) => s === 'left' || s === 'right';
   const stub = (p) => ({ x: p.x + NORMAL[p.side][0] * G, y: p.y + NORMAL[p.side][1] * G });
   const a1 = stub(a);
   const b1 = stub(b);
   const mx = (a1.x + b1.x) / 2;
   const my = (a1.y + b1.y) / 2;
-  const viaX = [{ x: mx, y: a1.y }, { x: mx, y: b1.y }];
-  const viaY = [{ x: a1.x, y: my }, { x: b1.x, y: my }];
-  const corners = [[{ x: b1.x, y: a1.y }], [{ x: a1.x, y: b1.y }]];
+  const viaX = { free: true, make: (d) => [{ x: mx + d, y: a1.y }, { x: mx + d, y: b1.y }] };
+  const viaY = { free: true, make: (d) => [{ x: a1.x, y: my + d }, { x: b1.x, y: my + d }] };
+  const corner1 = { free: false, make: () => [{ x: b1.x, y: a1.y }] };
+  const corner2 = { free: false, make: () => [{ x: a1.x, y: b1.y }] };
   let options;
   if (horizontal(a.side) && horizontal(b.side)) options = [viaX, viaY];
   else if (!horizontal(a.side) && !horizontal(b.side)) options = [viaY, viaX];
-  else options = horizontal(a.side) ? corners : [corners[1], corners[0]];
+  else options = horizontal(a.side) ? [corner1, corner2] : [corner2, corner1];
   const backtracks = (middle) => {
     const pts = [a1, ...middle, b1].filter((p, i, all) => i === 0 || p.x !== all[i - 1].x || p.y !== all[i - 1].y);
     if (pts.length < 2) return 0;
@@ -145,12 +152,96 @@ function route(a, b) {
     const last = { x: pts[pts.length - 1].x - pts[pts.length - 2].x, y: pts[pts.length - 1].y - pts[pts.length - 2].y };
     return (first.x * na[0] + first.y * na[1] < 0 ? 1 : 0) + (last.x * nb[0] + last.y * nb[1] > 0 ? 1 : 0);
   };
-  const middle = options.reduce((best, o) => (backtracks(o) < backtracks(best) ? o : best));
-  return [a, a1, ...middle, b1, b];
+  const scored = options.map((o) => ({ ...o, back: backtracks(o.make(0)), a, b, a1, b1 }));
+  const fewest = Math.min(...scored.map((o) => o.back));
+  return scored.filter((o) => o.back === fewest);
+}
+
+const buildRoute = (o, d) => [o.a, o.a1, ...o.make(d), o.b1, o.b];
+
+// ---- keeping wires apart ----------------------------------------------------
+// Wires are laid out in the order they were made. Each new one tries small
+// shifts (of where it meets an auto-placed box edge, and of its middle leg)
+// until none of its legs runs along another wire's or a bundle's within
+// SPACING. Crossing is fine; so is touching a segment of the same wire.
+
+const SPACING = 8;
+const SHIFTS = [0, SPACING, -SPACING, 2 * SPACING, -2 * SPACING];
+const LEG_SHIFTS = [...SHIFTS, 3 * SPACING, -3 * SPACING];
+
+function legsOf(pts, wireId) {
+  const legs = [];
+  for (let i = 1; i < pts.length; i++) {
+    const [p, q] = [pts[i - 1], pts[i]];
+    if (p.x === q.x && p.y !== q.y) legs.push({ v: true, c: p.x, lo: Math.min(p.y, q.y), hi: Math.max(p.y, q.y), wireId });
+    else if (p.y === q.y && p.x !== q.x) legs.push({ v: false, c: p.y, lo: Math.min(p.x, q.x), hi: Math.max(p.x, q.x), wireId });
+  }
+  return legs;
+}
+
+function overlapCount(legs, placed, wireId) {
+  let n = 0;
+  for (const l of legs) {
+    for (const m of placed) {
+      if (m.wireId === wireId || m.v !== l.v || Math.abs(m.c - l.c) > SPACING - 0.5) continue;
+      if (Math.min(m.hi, l.hi) - Math.max(m.lo, l.lo) > 1) n++;
+    }
+  }
+  return n;
+}
+
+// The nearest route between two shapes that doesn't run along `placed` legs.
+function routeAvoiding(sa, sb, placed, wireId) {
+  const shiftsA = sa.rect ? SHIFTS : [0];
+  const shiftsB = sb.rect ? SHIFTS : [0];
+  const tries = [];
+  for (const da of shiftsA) {
+    for (const db of shiftsB) {
+      const options = routeOptions(anchor(sa, centerOf(sb), da), anchor(sb, centerOf(sa), db));
+      options.forEach((o, i) => {
+        for (const d of o.free ? LEG_SHIFTS : [0]) tries.push({ o, d, cost: Math.abs(da) + Math.abs(db) + Math.abs(d) + i * SPACING * 0.5 });
+      });
+    }
+  }
+  tries.sort((x, y) => x.cost - y.cost);
+  let best = null;
+  for (const t of tries) {
+    const pts = buildRoute(t.o, t.d);
+    const n = overlapCount(legsOf(pts, wireId), placed, wireId);
+    if (!n) return pts;
+    if (!best || n < best.n) best = { pts, n };
+  }
+  return best.pts;
+}
+
+// Routes for every segment drawn on a sheet, cached per document (documents
+// are never changed in place, so each new state gets a fresh layout).
+const layouts = new WeakMap();
+
+function wireLayout(doc, sheetId) {
+  let bySheet = layouts.get(doc);
+  if (!bySheet) layouts.set(doc, (bySheet = new Map()));
+  if (bySheet.has(sheetId)) return bySheet.get(sheetId);
+  const placed = [];
+  for (const b of doc.bundles) {
+    if (b.sheetId === sheetId) placed.push(...legsOf(b.points.map((q) => ({ x: q.x * G, y: q.y * G })), null));
+  }
+  const routes = new Map();
+  for (const seg of doc.segments) {
+    if (seg.sheetId !== sheetId || insideBundle(doc, seg)) continue;
+    const pts = routeAvoiding(endShape(doc, seg.from), endShape(doc, seg.to), placed, seg.wireId);
+    routes.set(seg.id, pts);
+    placed.push(...legsOf(pts, seg.wireId));
+  }
+  const layout = { routes, placed };
+  bySheet.set(sheetId, layout);
+  return layout;
 }
 
 // Where a segment's two ends are drawn (for dragging an end around its module).
 export function segmentEnds(doc, seg) {
+  const pts = wireLayout(doc, seg.sheetId).routes.get(seg.id);
+  if (pts) return { from: pts[0], to: pts[pts.length - 1] };
   const sa = endShape(doc, seg.from);
   const sb = endShape(doc, seg.to);
   return { from: anchor(sa, centerOf(sb)), to: anchor(sb, centerOf(sa)) };
@@ -158,11 +249,8 @@ export function segmentEnds(doc, seg) {
 
 function segmentMarkup(doc, seg, selected) {
   const wire = byId(doc.wires, seg.wireId);
-  const sa = endShape(doc, seg.from);
-  const sb = endShape(doc, seg.to);
-  const a = anchor(sa, centerOf(sb));
-  const b = anchor(sb, centerOf(sa));
-  const pts = route(a, b);
+  const pts = wireLayout(doc, seg.sheetId).routes.get(seg.id);
+  const b = pts[pts.length - 1];
   const d = 'M' + pts.map((p) => `${p.x},${p.y}`).join(' L');
 
   let head = '';
@@ -223,13 +311,13 @@ function ghostMark(doc, t, shape, color) {
   return '';
 }
 
-export function wireGhost(doc, from, to, { color, directed }) {
+export function wireGhost(doc, from, to, { color, directed, sheetId, wireId = null }) {
   const sa = targetShape(doc, from);
   const sb = targetShape(doc, to);
   if (!sa || !sb) return '';
-  const a = anchor(sa, centerOf(sb));
-  const b = anchor(sb, centerOf(sa));
-  const pts = route(a, b);
+  // The wire being drawn keeps clear of the wires already on the sheet, like a new one will.
+  const pts = routeAvoiding(sa, sb, wireLayout(doc, sheetId).placed, wireId);
+  const b = pts[pts.length - 1];
   let head = '';
   if (directed) {
     let i = pts.length - 2;

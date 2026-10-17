@@ -454,6 +454,21 @@ function placementOn(doc, sheetId, placementId) {
   return p;
 }
 
+// The nearest offset to `offset` on a subsystem's side that keeps a new port
+// about 0.8 grid units (16 px) from the ports already there, so wires don't
+// arrive on top of each other. `length` is the side's length in grid units.
+function freePortOffset(doc, subsystemId, side, offset, length) {
+  const taken = doc.vias.filter((v) => v.subsystemId === subsystemId && v.portSide === side && !v.crossingId).map((v) => v.portOffset);
+  const step = Math.min(0.5, 0.8 / Math.max(1, Number(length) || 1));
+  for (let k = 0; k <= 12; k++) {
+    for (const o of k ? [offset + k * step, offset - k * step] : [offset]) {
+      if (o < 0.05 || o > 0.95) continue;
+      if (taken.every((t) => Math.abs(t - o) >= step * 0.99)) return o;
+    }
+  }
+  return offset;
+}
+
 // Vias for a (wire, subsystem) pair. `side` is where the segment is drawn:
 // 'parent' (at a port on the subsystem box) or 'inside' (at the sheet boundary).
 function findOrCreateVia(doc, wire, subsystemId, side, role, pos) {
@@ -473,7 +488,7 @@ function findOrCreateVia(doc, wire, subsystemId, side, role, pos) {
     x: side === 'inside' ? Math.round(pos.x) : direction === 'out' ? 30 : 2,
     y: side === 'inside' ? Math.round(pos.y) : 2 + 3 * n,
     portSide: side === 'parent' && SIDES.includes(pos.side) ? pos.side : direction === 'out' ? 'right' : 'left',
-    portOffset: side === 'parent' ? clamp01(pos.offset) : PORT_SPREAD[n % PORT_SPREAD.length],
+    portOffset: side === 'parent' ? freePortOffset(doc, subsystemId, pos.side, clamp01(pos.offset), pos.length) : PORT_SPREAD[n % PORT_SPREAD.length],
   };
   doc.vias.push(via);
   return via;
@@ -490,7 +505,8 @@ function resolveTarget(doc, sheetId, t, role, wire) {
     case 'subsystem': {
       const p = placementOn(doc, sheetId, t.placementId);
       if (byId(doc.objects, p.objectId).type !== 'subsystem') fail('That box is not a subsystem.');
-      const via = findOrCreateVia(doc, wire, p.objectId, 'parent', role, t);
+      const length = t.side === 'top' || t.side === 'bottom' ? p.w : p.h;
+      const via = findOrCreateVia(doc, wire, p.objectId, 'parent', role, { ...t, length });
       return { kind: 'port', placementId: p.id, viaId: via.id };
     }
     case 'port': {
@@ -877,7 +893,7 @@ const commands = {
           s[end] = { kind: 'module', placementId: p.id };
         } else {
           const wire = byId(doc.wires, s.wireId);
-          const via = findOrCreateVia(doc, wire, obj.id, 'parent', end, { side: end === 'to' ? 'left' : 'right', offset: 0.5 });
+          const via = findOrCreateVia(doc, wire, obj.id, 'parent', end, { side: end === 'to' ? 'left' : 'right', offset: 0.5, length: p.h });
           s[end] = { kind: 'port', placementId: p.id, viaId: via.id };
         }
       }

@@ -168,7 +168,7 @@ function renderCanvas() {
     overlay = `<rect class="ghost" x="${r.x * G}" y="${r.y * G}" width="${r.w * G}" height="${r.h * G}"/>`;
   }
   const w = drag?.type === 'wire' ? drag : wiring;
-  if (w) overlay = wireGhost(doc, w.from, ghostEnd(w), wireStyle(w));
+  if (w) overlay = wireGhost(doc, w.from, ghostEnd(w), { ...wireStyle(w), sheetId: currentSheet() });
   if (bundling) {
     const pts = [...bundling.points, orthoFrom(bundling.points[bundling.points.length - 1], bundling.cursor)];
     overlay = `<path class="bundle-draft" d="M${pts.map((q) => `${q.x * G},${q.y * G}`).join(' L')}"/>`;
@@ -432,7 +432,7 @@ function ghostEnd(w) {
 // (or ends) at one of its vias, else the new wire's defaults.
 function wireStyle(w) {
   const wire = (w.from.pull && wireByName(doc, w.from.pull)) || targetWire(w.from) || targetWire(w.hover);
-  if (wire) return { color: wire.color, directed: wire.direction === 'directed' };
+  if (wire) return { color: wire.color, directed: wire.direction === 'directed', wireId: wire.id };
   return { color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], directed: true };
 }
 
