@@ -4,6 +4,7 @@ import { sheetName, sheetPath, status } from './derive.js';
 import { G, nearestSide, renderSheet } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
+import { createPreview } from './preview.js';
 import { plainText, richEditor, richToHtml } from './richtext.js';
 
 const NOTE_BOX = { w: 8, h: 2 }; // default text box size, in grid units
@@ -30,6 +31,14 @@ let preview = null;        // document shown instead of `doc` while dragging
 let drag = null;
 let lastClick = {};        // for double-click detection
 const views = {};          // sheet id -> { x, y, k }
+
+const hoverPreview = createPreview({
+  host: document.querySelector('main'),
+  getDoc: () => doc,
+  boxRect: (id) => svg.querySelector(`[data-kind="placement"][data-id="${id}"] > .body`)?.getBoundingClientRect() ?? null,
+  parentName: () => sheetName(doc, currentSheet()),
+  onOpen: (id) => goTo([...path, id]),
+});
 
 const currentSheet = () => path[path.length - 1];
 const view = () => (views[currentSheet()] ||= { x: 60, y: 60, k: 1 });
@@ -398,7 +407,15 @@ function dragCommand(d, pt) {
   return null;
 }
 
+// The subsystem placement under the pointer, if any (for the hover preview).
+function hoveredSubsystem(e) {
+  const box = e.target.closest?.('[data-kind="placement"]');
+  const p = box && byId(doc.placements, box.dataset.id);
+  return p && byId(doc.objects, p.objectId)?.type === 'subsystem' ? p.id : null;
+}
+
 svg.addEventListener('pointerdown', (e) => {
+  hoverPreview.cancel();
   if (e.button !== 0 && e.button !== 1) return;
   const el = e.target.closest('[data-kind]');
   const pt = toWorld(e);
@@ -423,7 +440,10 @@ svg.addEventListener('pointerdown', (e) => {
 });
 
 svg.addEventListener('pointermove', (e) => {
-  if (!drag) return;
+  if (!drag) {
+    hoverPreview.hover(tool === 'select' && !e.buttons ? hoveredSubsystem(e) : null);
+    return;
+  }
   const pt = toWorld(e);
   if (drag.type === 'pan') {
     Object.assign(view(), { x: drag.view.x + e.clientX - drag.sx, y: drag.view.y + e.clientY - drag.sy });
@@ -486,8 +506,11 @@ svg.addEventListener('pointercancel', () => {
   renderCanvas();
 });
 
+svg.addEventListener('pointerleave', () => hoverPreview.hover(null));
+
 svg.addEventListener('wheel', (e) => {
   e.preventDefault();
+  hoverPreview.cancel();
   const v = view();
   const r = svg.getBoundingClientRect();
   const k = Math.min(4, Math.max(0.2, v.k * Math.exp(-e.deltaY * 0.0015)));
@@ -510,6 +533,7 @@ function setTool(name) {
 const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire', t: 'text' };
 
 document.addEventListener('keydown', (e) => {
+  hoverPreview.hide();
   if (e.target.closest?.('input, textarea, select, dialog')) return;
   const key = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && key === 'z') {

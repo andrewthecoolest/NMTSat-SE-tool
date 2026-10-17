@@ -219,13 +219,34 @@ function viaMarkup(doc, via, parentName, selected) {
 
 // ---- sheet ------------------------------------------------------------------
 
-export function renderSheet(doc, { sheetId, parentName, selection, view, width, height, overlay = '' }) {
+// World-space rectangle (px) around everything on a sheet, with room for wire
+// stubs and labels; null for an empty sheet.
+export function sheetBounds(doc, sheetId) {
+  const rects = [];
+  for (const p of doc.placements) if (p.sheetId === sheetId) rects.push(pxRect(p));
+  for (const n of doc.notes) if (n.sheetId === sheetId) rects.push(pxRect(n));
+  for (const u of doc.unknownLoads) if (u.sheetId === sheetId) rects.push({ x: u.x * G, y: u.y * G, w: G, h: G });
+  for (const v of doc.vias) {
+    if (v.subsystemId !== sheetId) continue;
+    const half = Math.max(VIA_R + 16, (byId(doc.wires, v.wireId).name.length + 12) * 3.5);
+    rects.push({ x: v.x * G - half, y: v.y * G - VIA_R, w: 2 * half, h: 2 * VIA_R + 20 });
+  }
+  if (!rects.length) return null;
+  const pad = 2 * G;
+  const x = Math.min(...rects.map((r) => r.x)) - pad;
+  const y = Math.min(...rects.map((r) => r.y)) - pad;
+  return { x, y, w: Math.max(...rects.map((r) => r.x + r.w)) + pad - x, h: Math.max(...rects.map((r) => r.y + r.h)) + pad - y };
+}
+
+// boundary: draw the sheet-boundary strip on subsystem sheets. patternId must be
+// unique per page (the hover preview renders a second sheet alongside the canvas).
+export function renderSheet(doc, { sheetId, parentName, selection, view, width, height, overlay = '', boundary: withBoundary = true, patternId = 'dots' }) {
   const sel = (kind, id) => selection?.kind === kind && selection.id === id;
   const left = -view.x / view.k;
   const top = -view.y / view.k;
 
   const parts = [];
-  parts.push(`<rect fill="url(#dots)" x="${left - G}" y="${top - G}" width="${width / view.k + 2 * G}" height="${height / view.k + 2 * G}"/>`);
+  parts.push(`<rect fill="url(#${patternId})" x="${left - G}" y="${top - G}" width="${width / view.k + 2 * G}" height="${height / view.k + 2 * G}"/>`);
   for (const p of doc.placements) if (p.sheetId === sheetId) parts.push(placementMarkup(doc, p, sel('placement', p.id)));
   for (const s of doc.segments) if (s.sheetId === sheetId) parts.push(segmentMarkup(doc, s, sel('segment', s.id)));
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) parts.push(unknownMarkup(u, sel('unknown', u.id)));
@@ -233,12 +254,12 @@ export function renderSheet(doc, { sheetId, parentName, selection, view, width, 
   for (const n of doc.notes) if (n.sheetId === sheetId) parts.push(noteMarkup(n, sel('note', n.id)));
   parts.push(overlay);
 
-  const boundary = sheetId === 'root' ? '' : `
+  const boundary = sheetId === 'root' || !withBoundary ? '' : `
     <rect class="boundary" data-kind="boundary" x="7" y="7" width="${Math.max(0, width - 14)}" height="${Math.max(0, height - 14)}"/>
     <text class="boundary-label" x="${width / 2}" y="11">sheet boundary · drop a wire here to leave this subsystem</text>`;
 
   return `<defs>
-      <pattern id="dots" width="${G}" height="${G}" x="${-G / 2}" y="${-G / 2}" patternUnits="userSpaceOnUse">
+      <pattern id="${patternId}" width="${G}" height="${G}" x="${-G / 2}" y="${-G / 2}" patternUnits="userSpaceOnUse">
         <circle cx="${G / 2}" cy="${G / 2}" r="1.1" fill="#9ca3af" fill-opacity="0.55"/>
       </pattern>
     </defs>

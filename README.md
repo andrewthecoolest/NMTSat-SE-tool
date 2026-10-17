@@ -16,6 +16,7 @@ A browser tool for mapping a satellite's architecture: subsystems, modules, and 
 - Click the **i** on a box, or click a wire, to see its details.
 - Descriptions and text boxes can be formatted: select some text, then use **B** (bold, or Ctrl/Cmd+B), **Size**, or the color picker (**A** reapplies the current color). **Clear** removes formatting.
 - Reusing a name refers to the same object or wire.
+- Rest the pointer on a subsystem for a second to preview what's inside it. Move the pointer away to close the preview, or click it to open that subsystem.
 - Use the breadcrumb at the top left to go back up a level.
 - Select something and press Delete to remove it. Undo brings it back.
 
