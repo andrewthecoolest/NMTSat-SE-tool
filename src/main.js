@@ -691,7 +691,8 @@ svg.addEventListener('pointerdown', (e) => {
 svg.addEventListener('pointermove', (e) => {
   const pt = toWorld(e);
   if (!drag) {
-    hoverPreview.hover(tool === 'select' && !e.buttons && !spaceDown ? hoveredBox(e) : null);
+    // No previews while something is selected (they'd cover what you're working on).
+    hoverPreview.hover(tool === 'select' && !e.buttons && !spaceDown && !selection ? hoveredBox(e) : null);
     if (wiring) {
       wiring.end = pt;
       wiring.hover = targetAt(elementAt(e), pt);
