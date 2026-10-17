@@ -1,5 +1,5 @@
 // App wiring: state, history, pointer/keyboard handling, toolbar.
-import { apply, byId, emptyDoc, validate, wireByName } from './model.js';
+import { apply, byId, emptyDoc, upgrade, validate, wireByName } from './model.js';
 import { sheetName, sheetPath, status } from './derive.js';
 import { G, nearestSide, renderSheet } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
@@ -14,13 +14,14 @@ const statusEl = document.getElementById('status');
 const toastEl = document.getElementById('toast');
 const objectDialog = document.getElementById('objectDialog');
 const wireDialog = document.getElementById('wireDialog');
+const noteDialog = document.getElementById('noteDialog');
 
 let doc = emptyDoc();
 let past = [];
 let future = [];
 let path = ['root'];       // sheet ids from root to the current sheet
 let tool = 'select';
-let selection = null;      // { kind: 'placement' | 'unknown' | 'segment' | 'via', id }
+let selection = null;      // { kind: 'placement' | 'unknown' | 'segment' | 'via' | 'note', id }
 let subject = null;        // what the info view shows
 let preview = null;        // document shown instead of `doc` while dragging
 let drag = null;
@@ -33,33 +34,35 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // ---- history ----------------------------------------------------------------
 
-function setDoc(next) {
+// keepPanel: leave the info view as it is (used when saving one of its fields).
+function setDoc(next, keepPanel = false) {
   past.push(doc);
   if (past.length > 200) past.shift();
   future = [];
   doc = next;
   localStore.save(doc);
-  render();
+  render(keepPanel);
 }
 
-function commit(cmd, prefix = '') {
+function commit(cmd, prefix = '', keepPanel = false) {
   const r = apply(doc, cmd);
   if (r.error) {
     toast(prefix + r.error);
     render();
     return null;
   }
-  setDoc(r.doc);
+  setDoc(r.doc, keepPanel);
   return r;
 }
 
-// Commit a deletion, first asking when the question for the number of lost segments is non-empty.
-function commitConfirmed(cmd, question) {
+// Deletions happen at once and say what went; Undo brings it back. (No confirm():
+// browsers let people switch those off, after which every delete silently failed.)
+function commitDeletion(cmd, describe) {
   const r = apply(doc, cmd);
   if (r.error) return toast(r.error);
-  const q = question(doc.segments.length - r.doc.segments.length);
-  if (q && !confirm(q)) return;
+  const lost = doc.segments.length - r.doc.segments.length;
   setDoc(r.doc);
+  toast(`${describe(lost)} Undo brings it back.`);
 }
 
 function undo() {
@@ -78,25 +81,28 @@ function redo() {
   render();
 }
 
-function replaceDoc(next) {
+function replaceDoc(next, message) {
   path = ['root'];
   selection = null;
   subject = null;
+  preview = null;
+  drag = null;
   setDoc(next);
+  toast(message);
 }
 
 // ---- rendering --------------------------------------------------------------
 
-const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias' };
+const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias', note: 'notes' };
 
-function render() {
+function render(keepPanel = false) {
   // Leave sheets that no longer exist (e.g. after undo or delete).
   const gone = path.findIndex((id, i) => i > 0 && byId(doc.objects, id)?.type !== 'subsystem');
   if (gone > 0) path = path.slice(0, gone);
   if (selection && !byId(doc[LISTS[selection.kind]], selection.id)) selection = null;
 
   renderCanvas();
-  renderPanel(panelEl, panelApp());
+  if (!keepPanel) renderPanel(panelEl, panelApp());
   if (!panelEl.open) subject = null;
 
   crumbsEl.replaceChildren(...path.flatMap((id, i) => {
@@ -138,6 +144,7 @@ function renderCanvas() {
 function panelApp() {
   return {
     doc, subject, sheetId: currentSheet(), commit, toast,
+    edit: (cmd) => commit(cmd, '', true),
     preview: (cmd) => {
       preview = cmd ? apply(doc, cmd).doc ?? null : null;
       renderCanvas();
@@ -180,31 +187,28 @@ function goTo(newPath) {
   render();
 }
 
+const andSegments = (lost) => (lost ? `, plus ${plural(lost, 'wire segment')}` : '');
+
 function removePlacement(id) {
   const p = byId(doc.placements, id);
   const obj = byId(doc.objects, p.objectId);
   if (doc.placements.filter((x) => x.objectId === obj.id).length === 1) return deleteEverywhere(obj.id);
-  commitConfirmed({ type: 'removePlacement', id }, (lost) =>
-    lost ? `Remove ${obj.name} from this sheet? This also deletes ${plural(lost, 'wire segment')}.` : null);
+  commitDeletion({ type: 'removePlacement', id }, (lost) => `Removed ${obj.name} from this sheet${andSegments(lost)}.`);
 }
 
 function deleteEverywhere(objectId) {
   const obj = byId(doc.objects, objectId);
-  commitConfirmed({ type: 'deleteObject', id: objectId }, (lost) =>
-    `Delete ${obj.name} everywhere${obj.type === 'subsystem' ? ', including everything on its sheet' : ''}?` +
-    (lost ? ` ${plural(lost, 'wire segment')} will be deleted too.` : ''));
+  const inside = obj.type === 'subsystem' ? ' and everything on its sheet' : '';
+  commitDeletion({ type: 'deleteObject', id: objectId }, (lost) => `Deleted ${obj.name}${inside}${andSegments(lost)}.`);
 }
 
 function deleteSegment(id) {
   const wire = byId(doc.wires, byId(doc.segments, id).wireId);
-  const where = wire.direction === 'directed' ? 'downstream of it' : 'cut off by it';
-  commitConfirmed({ type: 'deleteSegment', id }, (lost) =>
-    lost > 1 ? `Delete this segment and the ${plural(lost - 1, 'segment')} ${where}?` : null);
+  commitDeletion({ type: 'deleteSegment', id }, (lost) => `Deleted ${plural(lost, 'segment')} of ${wire.name}.`);
 }
 
 function deleteUnknown(id) {
-  commitConfirmed({ type: 'deleteUnknown', id }, (lost) =>
-    lost ? `Delete this unknown load and ${plural(lost, 'wire segment')}?` : null);
+  commitDeletion({ type: 'deleteUnknown', id }, (lost) => `Deleted the unknown load${andSegments(lost)}.`);
 }
 
 function deleteSelection() {
@@ -213,6 +217,7 @@ function deleteSelection() {
   if (kind === 'placement') removePlacement(id);
   if (kind === 'unknown') deleteUnknown(id);
   if (kind === 'segment') deleteSegment(id);
+  if (kind === 'note') commit({ type: 'deleteNote', id });
   if (kind === 'via') toast('Vias follow their segments. Delete a segment instead.');
 }
 
@@ -247,6 +252,14 @@ async function askWire(name) {
   const pending = ask(wireDialog, { name, color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], direction: 'directed' });
   syncWireDialog();
   return pending;
+}
+
+// Ask for a note's text; an existing note is edited (and deleted if cleared).
+async function askNote(note, at) {
+  const answer = await ask(noteDialog, { text: note?.text ?? '' });
+  if (!answer) return;
+  if (note) commit({ type: 'editNote', id: note.id, text: answer.text });
+  else if (answer.text.trim()) commit({ type: 'addNote', sheetId: currentSheet(), x: at.x, y: at.y, text: answer.text });
 }
 
 // ---- pointer interaction ----------------------------------------------------
@@ -297,7 +310,7 @@ function startSelect(el, pt) {
   // the element, so the browser's dblclick event is unreliable here.
   const now = Date.now();
   const double = lastClick.id === id && now - lastClick.time < 400;
-  lastClick = { id, time: now };
+  lastClick = double ? {} : { id, time: now };
 
   if (kind === 'info') {
     selection = { kind: 'placement', id };
@@ -324,6 +337,12 @@ function startSelect(el, pt) {
     else if (kind === 'via') drag = { type: 'moveVia', id };
     else drag = { type: 'movePort', id, placementId: el.dataset.placement };
     render();
+  } else if (kind === 'note') {
+    const n = byId(doc.notes, id);
+    selection = { kind, id };
+    if (!double) drag = { type: 'moveNote', id, dx: gx - n.x, dy: gy - n.y };
+    render();
+    if (double) askNote(n);
   } else if (kind === 'segment') {
     selection = { kind, id };
     subject = { kind: 'wire', id: byId(doc.segments, id).wireId, segmentId: id };
@@ -340,6 +359,7 @@ function dragCommand(d, pt) {
     return { type: 'movePlacement', id: d.id, w: gx - p.x, h: gy - p.y };
   }
   if (d.type === 'moveUnknown') return { type: 'moveUnknown', id: d.id, x: gx - d.dx, y: gy - d.dy };
+  if (d.type === 'moveNote') return { type: 'moveNote', id: d.id, x: gx - d.dx, y: gy - d.dy };
   if (d.type === 'moveVia') return { type: 'moveVia', id: d.id, x: gx, y: gy };
   if (d.type === 'movePort') return { type: 'movePort', id: d.id, ...nearestSide(byId(doc.placements, d.placementId), pt) };
   return null;
@@ -366,6 +386,8 @@ svg.addEventListener('pointerdown', (e) => {
     commit({ type: 'addUnknown', sheetId: currentSheet(), x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) });
   } else if (tool === 'wire') {
     drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt };
+  } else if (tool === 'text') {
+    drag = { type: 'text' };
   }
 });
 
@@ -389,7 +411,9 @@ svg.addEventListener('pointerup', async (e) => {
   if (!d) return;
   const pt = toWorld(e);
 
-  if (d.cmd) {
+  if (d.type === 'text') {
+    askNote(null, { x: Math.round(pt.x / G), y: Math.round(pt.y / G) });
+  } else if (d.cmd) {
     const moved = preview && JSON.stringify(preview) !== JSON.stringify(doc);
     preview = null;
     if (moved) commit(d.cmd);
@@ -422,6 +446,13 @@ svg.addEventListener('pointerup', async (e) => {
   }
 });
 
+// The browser can abandon a drag (e.g. a system gesture); drop it and its preview.
+svg.addEventListener('pointercancel', () => {
+  drag = null;
+  preview = null;
+  renderCanvas();
+});
+
 svg.addEventListener('wheel', (e) => {
   e.preventDefault();
   const v = view();
@@ -443,7 +474,7 @@ function setTool(name) {
   for (const b of document.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
 }
 
-const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire' };
+const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire', t: 'text' };
 
 document.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea, select, dialog')) return;
@@ -490,20 +521,20 @@ importFile.addEventListener('change', async () => {
   if (!file) return;
   let data;
   try {
-    data = JSON.parse(await file.text());
+    data = upgrade(JSON.parse(await file.text()));
   } catch {
-    return alert(`${file.name} is not valid JSON.`);
+    return toast(`${file.name} is not valid JSON.`);
   }
   const problems = validate(data);
-  if (problems.length) return alert(`Can't import ${file.name}:\n\n${problems.slice(0, 8).join('\n')}`);
-  replaceDoc(data);
+  if (problems.length) return toast(`Can't import ${file.name}: ${problems[0]}`);
+  replaceDoc(data, `Imported ${file.name}. Undo goes back.`);
 });
 
 async function loadDefault() {
   try {
     const r = await fetch('default.json', { cache: 'no-cache' });
     if (!r.ok) return null;
-    const data = await r.json();
+    const data = upgrade(await r.json());
     return validate(data).length ? null : data;
   } catch {
     return null;
@@ -511,19 +542,16 @@ async function loadDefault() {
 }
 
 document.getElementById('reset').addEventListener('click', async () => {
-  if (!confirm('Replace the current diagram with the site\'s default.json? You can undo this.')) return;
   const data = await loadDefault();
-  if (data) replaceDoc(data);
+  if (data) replaceDoc(data, 'Loaded default.json. Undo goes back.');
   else toast('No valid default.json was found.');
 });
 
-document.getElementById('new').addEventListener('click', () => {
-  if (confirm('Start an empty diagram? You can undo this.')) replaceDoc(emptyDoc());
-});
+document.getElementById('new').addEventListener('click', () => replaceDoc(emptyDoc(), 'Started an empty diagram. Undo goes back.'));
 
 // ---- start ------------------------------------------------------------------
 
-const saved = localStore.load();
+const saved = upgrade(localStore.load());
 doc = saved && !validate(saved).length ? saved : (await loadDefault()) ?? emptyDoc();
 setTool('select');
 render();

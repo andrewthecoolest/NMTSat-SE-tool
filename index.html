@@ -3,19 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Satellite Architecture Mapper</title>
+  <title>NMTSat-SEtool</title>
   <link rel="stylesheet" href="style.css">
   <script type="module" src="src/main.js"></script>
 </head>
 <body>
   <header>
-    <h1>NMTSat Systems Engineering Map</h1>
     <div class="group">
       <button data-tool="select" title="Select, move and resize (V)">Select</button>
       <button data-tool="module" title="Drag to draw a module (M)">Module</button>
       <button data-tool="subsystem" title="Drag to draw a subsystem (S)">Subsystem</button>
       <button data-tool="unknown" title="Click to place an unknown load (U)">Unknown load</button>
       <button data-tool="wire" title="Drag from one thing to another to draw a wire (W)">Wire</button>
+      <button data-tool="text" title="Click to add text to the sheet (T)">Text</button>
     </div>
     <div class="group">
       <button id="undo" title="Undo (Ctrl/Cmd+Z)">Undo</button>
@@ -59,6 +59,15 @@
         </select>
       </label>
       <p class="muted" id="wireHint"></p>
+      <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="noteDialog">
+    <form method="dialog">
+      <h2>Text</h2>
+      <label class="field"><span>Text</span><textarea name="text" rows="4"></textarea></label>
+      <p class="muted">Clear the text to delete it.</p>
       <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
     </form>
   </dialog>

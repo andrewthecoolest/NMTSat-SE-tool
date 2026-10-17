@@ -183,6 +183,20 @@ function unknownMarkup(u, selected) {
   </g>`;
 }
 
+// A free text note: one line of SVG text per line typed, top-left at (x, y).
+function noteMarkup(n, selected) {
+  const lines = n.text.split('\n');
+  const x = n.x * G;
+  const y = n.y * G;
+  const w = Math.max(...lines.map((l) => l.length)) * 8 + 8;
+  const h = lines.length * 18 + 6;
+  const tspans = lines.map((l, i) => `<tspan x="${x + 4}" y="${y + 16 + i * 18}">${esc(l)}</tspan>`).join('');
+  return `<g class="note${selected ? ' selected' : ''}" data-kind="note" data-id="${n.id}">
+    <rect x="${x}" y="${y}" width="${w}" height="${h}"/>
+    <text>${tspans}</text>
+  </g>`;
+}
+
 function viaMarkup(doc, via, parentName, selected) {
   const wire = byId(doc.wires, via.wireId);
   const x = via.x * G;
@@ -218,6 +232,7 @@ export function renderSheet(doc, { sheetId, parentName, selection, view, width, 
   for (const s of doc.segments) if (s.sheetId === sheetId) parts.push(segmentMarkup(doc, s, sel('segment', s.id)));
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) parts.push(unknownMarkup(u, sel('unknown', u.id)));
   for (const v of doc.vias) if (v.subsystemId === sheetId) parts.push(viaMarkup(doc, v, parentName, sel('via', v.id)));
+  for (const n of doc.notes) if (n.sheetId === sheetId) parts.push(noteMarkup(n, sel('note', n.id)));
   parts.push(overlay);
 
   const boundary = sheetId === 'root' ? '' : `

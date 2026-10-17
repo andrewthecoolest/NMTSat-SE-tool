@@ -8,7 +8,13 @@ const SIDES = ['top', 'right', 'bottom', 'left'];
 const PORT_SPREAD = [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6];
 
 export function emptyDoc() {
-  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [] };
+  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [] };
+}
+
+// Documents saved before text notes existed have no notes list.
+export function upgrade(data) {
+  if (data && typeof data === 'object' && !('notes' in data)) data.notes = [];
+  return data;
 }
 
 export const nameKey = (name) => String(name).trim().toLowerCase();
@@ -118,7 +124,7 @@ export function validate(doc) {
 
 function check(doc) {
   if (!doc || doc.schemaVersion !== SCHEMA_VERSION) return [`Unsupported schemaVersion (expected ${SCHEMA_VERSION}).`];
-  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias'];
+  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes'];
   for (const k of lists) if (!Array.isArray(doc[k])) return [`Missing "${k}" list.`];
 
   const errors = [];
@@ -152,6 +158,9 @@ function check(doc) {
   }
   for (const u of doc.unknownLoads) {
     if (!sheetOk(u.sheetId) || !finite(u.x, u.y)) errors.push('An unknown load is on a missing sheet.');
+  }
+  for (const n of doc.notes) {
+    if (!sheetOk(n.sheetId) || !finite(n.x, n.y) || typeof n.text !== 'string') errors.push('A text note is invalid.');
   }
   if (errors.length) return errors;
 
@@ -380,6 +389,7 @@ function sweep(doc) {
     const placed = new Set(doc.placements.map((p) => p.objectId));
     doc.objects = doc.objects.filter((o) => placed.has(o.id));
     doc.unknownLoads = doc.unknownLoads.filter((u) => sheetOk(u.sheetId));
+    doc.notes = doc.notes.filter((n) => sheetOk(n.sheetId));
     doc.vias = doc.vias.filter((v) => objectIds.has(v.subsystemId));
     const exists = (ep) => {
       if (ep.kind === 'module') return !!byId(doc.placements, ep.placementId);
@@ -620,6 +630,30 @@ const commands = {
     doc.objects = doc.objects.filter((o) => o.id !== id);
     sweep(doc);
     prune(doc, roots);
+  },
+
+  addNote(doc, { sheetId, x, y, text }) {
+    checkSheet(doc, sheetId);
+    if (!String(text ?? '').trim()) fail('Type some text.');
+    const n = { id: newId(), sheetId, x: Math.round(x), y: Math.round(y), text: String(text) };
+    doc.notes.push(n);
+    return { id: n.id };
+  },
+
+  moveNote(doc, { id, x, y }) {
+    Object.assign(get(doc.notes, id), { x: Math.round(x), y: Math.round(y) });
+  },
+
+  // Clearing a note's text deletes it.
+  editNote(doc, { id, text }) {
+    const n = get(doc.notes, id);
+    if (String(text ?? '').trim()) n.text = String(text);
+    else doc.notes = doc.notes.filter((x) => x !== n);
+  },
+
+  deleteNote(doc, { id }) {
+    get(doc.notes, id);
+    doc.notes = doc.notes.filter((n) => n.id !== id);
   },
 
   deleteUnknown(doc, { id }) {

@@ -20,7 +20,6 @@ body > header {
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
-body > header h1 { font-size: 15px; margin: 0 8px 0 0; }
 .group { display: flex; gap: 4px; }
 
 button {
@@ -41,6 +40,7 @@ main { position: relative; flex: 1; overflow: hidden; }
 
 #canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; user-select: none; }
 #canvas[data-tool="module"], #canvas[data-tool="subsystem"], #canvas[data-tool="unknown"], #canvas[data-tool="wire"] { cursor: crosshair; }
+#canvas[data-tool="text"] { cursor: text; }
 
 #crumbs {
   position: absolute;
@@ -135,6 +135,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .unknown rect { fill: transparent; }
 .unknown path { stroke: var(--ink); stroke-width: 2; }
 .unknown.selected rect { stroke: var(--ink); stroke-dasharray: 2 2; }
+
+.note rect { fill: transparent; }
+.note text { font-size: 14px; fill: var(--ink); white-space: pre; }
+.note.selected rect { stroke: var(--ink); stroke-dasharray: 2 2; }
 
 .via circle { fill: #fff; stroke-width: 2; }
 .via.selected circle { stroke-width: 4; }

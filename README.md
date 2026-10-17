@@ -11,10 +11,12 @@ A browser tool for mapping a satellite's architecture: subsystems, modules, and 
 | Subsystem | S | Same as Module, but double-clicking it opens its own sheet. |
 | Unknown load | U | Click to place an X: a placeholder wire end. Double-click it later to promote it to a module or subsystem. |
 | Wire | W | Drag from one thing to another. Dropping on empty space creates an unknown load. Dropping on a subsystem creates a port and a via inside it. Inside a subsystem, drop on the grey sheet boundary to leave it. |
+| Text | T | Click to add a note to the sheet. Double-click a note to edit it; clear its text to delete it. |
 
 - Click the **i** on a box, or click a wire, to see its details.
 - Reusing a name refers to the same object or wire.
 - Use the breadcrumb at the top left to go back up a level.
+- Select something and press Delete to remove it. Undo brings it back.
 
 ## Default diagram
 

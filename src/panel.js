@@ -25,6 +25,14 @@ const colorInput = (value, onchange) => h('input', { type: 'color', defaultValue
 const descriptionInput = (value, onchange) =>
   h('textarea', { class: 'description', defaultValue: value, onchange, placeholder: 'No description yet.', spellcheck: true });
 
+// Save a field without rebuilding the page, so a click that blurred the field
+// (say, on Delete) still lands on its button.
+function save(app, e, cmd) {
+  const ok = !!app.edit(cmd);
+  if (ok) e.target.defaultValue = e.target.value;
+  return ok;
+}
+
 // Commit any field whose edit hasn't fired a change event yet (e.g. closed with Esc).
 export function flushEdits(el) {
   for (const field of el.querySelectorAll('input, textarea')) {
@@ -33,7 +41,7 @@ export function flushEdits(el) {
 }
 
 // app: { doc, subject, sheetId, commit, preview, open, close, refresh, toast, goToSheet,
-//        removePlacement, deleteEverywhere, deleteSegment, deleteUnknown }
+//        edit, removePlacement, deleteEverywhere, deleteSegment, deleteUnknown }
 export function renderPanel(el, app) {
   const { doc, subject } = app;
   let content = null;
@@ -50,7 +58,7 @@ export function renderPanel(el, app) {
 }
 
 function header(app, title) {
-  return h('header', {}, h('span', {}, title), h('button', { class: 'close', title: 'Close (Esc)', onclick: app.close }, '×'));
+  return h('header', {}, h('span', { class: 'title' }, title), h('button', { class: 'close', title: 'Close (Esc)', onclick: app.close }, '×'));
 }
 
 function sheetLinks(app, sheetIds) {
@@ -67,24 +75,29 @@ function objectPage(app) {
   const obj = byId(doc.objects, subject.id);
   const placement = byId(doc.placements, subject.placementId);
 
+  // Renaming to another object's name merges the two (Undo separates them again).
   const rename = (e) => {
     const name = e.target.value.trim();
     const other = objectByName(doc, name);
-    if (!other || other === obj) return app.commit({ type: 'editObject', id: obj.id, name });
+    if (!other || other === obj) {
+      if (save(app, e, { type: 'editObject', id: obj.id, name })) e.target.closest('.page').querySelector('.title').textContent = `${name}(${obj.type})`;
+      return;
+    }
     if (other.type !== obj.type) {
       app.toast(`${other.name} already exists as a ${other.type}.`);
       return app.refresh();
     }
-    if (!confirm(`Merge ${obj.name} into ${other.name}? ${other.name} keeps its color and description.`)) return app.refresh();
-    if (app.commit({ type: 'mergeObjects', fromId: obj.id, intoId: other.id }, `Can't merge: `)) app.open({ kind: 'object', id: other.id });
+    if (!app.commit({ type: 'mergeObjects', fromId: obj.id, intoId: other.id }, `Can't merge: `)) return;
+    app.toast(`Merged ${obj.name} into ${other.name}. Undo separates them.`);
+    app.open({ kind: 'object', id: other.id });
   };
 
   const parts = [
     header(app, `${obj.name}(${obj.type})`),
     section('NAME', h('div', { class: 'row' },
       textInput(obj.name, rename, { class: 'name' }),
-      colorInput(obj.color, (e) => app.commit({ type: 'editObject', id: obj.id, color: e.target.value })))),
-    section('DESCRIPTION', descriptionInput(obj.description, (e) => app.commit({ type: 'editObject', id: obj.id, description: e.target.value }))),
+      colorInput(obj.color, (e) => save(app, e, { type: 'editObject', id: obj.id, color: e.target.value })))),
+    section('DESCRIPTION', descriptionInput(obj.description, (e) => save(app, e, { type: 'editObject', id: obj.id, description: e.target.value }))),
   ];
 
   if (obj.type === 'module') {
@@ -117,9 +130,13 @@ function wirePage(app) {
   const rename = (e) => {
     const name = e.target.value.trim();
     const other = wireByName(doc, name);
-    if (!other || other === wire) return app.commit({ type: 'editWire', id: wire.id, name });
-    if (!confirm(`Merge ${wire.name} into ${other.name}? ${other.name} keeps its color and description.`)) return app.refresh();
-    if (app.commit({ type: 'mergeWires', fromId: wire.id, intoId: other.id }, `Can't merge: `)) app.open({ kind: 'wire', id: other.id });
+    if (!other || other === wire) {
+      if (save(app, e, { type: 'editWire', id: wire.id, name })) e.target.closest('.page').querySelector('.title').textContent = `${name}(wire)`;
+      return;
+    }
+    if (!app.commit({ type: 'mergeWires', fromId: wire.id, intoId: other.id }, `Can't merge: `)) return;
+    app.toast(`Merged ${wire.name} into ${other.name}. Undo separates them.`);
+    app.open({ kind: 'wire', id: other.id });
   };
 
   const setDirection = (e) => {
@@ -152,8 +169,8 @@ function wirePage(app) {
     header(app, `${wire.name}(wire)`),
     section('NAME', h('div', { class: 'row' },
       textInput(wire.name, rename, { class: 'name' }),
-      colorInput(wire.color, (e) => app.commit({ type: 'editWire', id: wire.id, color: e.target.value })))),
-    section('DESCRIPTION', descriptionInput(wire.description, (e) => app.commit({ type: 'editWire', id: wire.id, description: e.target.value }))),
+      colorInput(wire.color, (e) => save(app, e, { type: 'editWire', id: wire.id, color: e.target.value })))),
+    section('DESCRIPTION', descriptionInput(wire.description, (e) => save(app, e, { type: 'editWire', id: wire.id, description: e.target.value }))),
     section('DIRECTION',
       h('select', { onchange: setDirection },
         h('option', { value: 'directed', selected: wire.direction === 'directed' || subject.orienting }, 'Directed'),
