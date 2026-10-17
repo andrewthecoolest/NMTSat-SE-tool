@@ -10,14 +10,14 @@ const SIDES = ['top', 'right', 'bottom', 'left'];
 const PORT_SPREAD = [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6];
 
 export function emptyDoc() {
-  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [], crossings: [] };
+  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [], crossings: [], junctions: [] };
 }
 
 // Older documents: no notes, bundles or taps lists, or notes without a size (they
 // used to size themselves to their text: about 8px per character and 18px per line).
 export function upgrade(data) {
   if (!data || typeof data !== 'object') return data;
-  for (const k of ['notes', 'bundles', 'taps', 'crossings']) if (!(k in data)) data[k] = [];
+  for (const k of ['notes', 'bundles', 'taps', 'crossings', 'junctions']) if (!(k in data)) data[k] = [];
   if (!Array.isArray(data.notes)) return data;
   for (const n of data.notes) {
     if (!n || typeof n !== 'object' || ('w' in n && 'h' in n)) continue;
@@ -56,6 +56,7 @@ export function endpointNode(doc, ep) {
   if (ep.kind === 'unknown') return 'u:' + ep.unknownId;
   if (ep.kind === 'port' || ep.kind === 'via') return 'v:' + ep.viaId;
   if (ep.kind === 'tap') return 't:' + ep.tapId;
+  if (ep.kind === 'junction') return 'j:' + ep.junctionId;
   return null;
 }
 
@@ -70,6 +71,7 @@ export function nodeName(doc, node) {
   if (node.startsWith('m:')) return byId(doc.objects, id)?.name ?? '?';
   if (node.startsWith('u:')) return 'an unknown load';
   if (node.startsWith('t:')) return `${byId(doc.bundles, byId(doc.taps, id)?.bundleId)?.name ?? '?'} (bundle)`;
+  if (node.startsWith('j:')) return 'a branch point';
   const via = byId(doc.vias, id);
   return `${byId(doc.objects, via?.subsystemId)?.name ?? '?'} (via)`;
 }
@@ -111,6 +113,7 @@ function components(edges) {
 }
 
 const touchesVia = (s, viaId) => [s.from, s.to].some((ep) => (ep.kind === 'via' || ep.kind === 'port') && ep.viaId === viaId);
+const touchesJunction = (s, junctionId) => [s.from, s.to].some((ep) => ep.kind === 'junction' && ep.junctionId === junctionId);
 const touchesTap = (s, tapId) => [s.from, s.to].some((ep) => ep.kind === 'tap' && ep.tapId === tapId);
 const tapBundle = (doc, ep) => (ep?.kind === 'tap' ? byId(doc.taps, ep.tapId)?.bundleId : undefined);
 const crossingVia = (doc, ep) => ((ep?.kind === 'via' || ep?.kind === 'port') && byId(doc.vias, ep.viaId)?.crossingId) || undefined;
@@ -198,6 +201,31 @@ function attachCrossings(doc) {
   }
 }
 
+// Branch points only exist where a wire actually branches. One left joining
+// two segments is merged away (into one segment); one left at a dead end goes,
+// with its segment; an unused one goes.
+function tidyJunctions(doc) {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const j of doc.junctions) {
+      const segs = doc.segments.filter((s) => touchesJunction(s, j.id));
+      if (segs.length >= 3) continue;
+      if (segs.length === 2) {
+        const [s1, s2] = segs;
+        const far = (s) => (s.from.kind === 'junction' && s.from.junctionId === j.id ? s.to : s.from);
+        Object.assign(s1, { from: far(s1), to: far(s2) });
+        doc.segments = doc.segments.filter((s) => s !== s2);
+      } else if (segs.length === 1) {
+        doc.segments = doc.segments.filter((s) => s !== segs[0]);
+      }
+      doc.junctions = doc.junctions.filter((x) => x !== j);
+      changed = true;
+      break;
+    }
+  }
+}
+
 // A tap where a wire crosses a subsystem edge with its bundle (it follows the bundle).
 const isCrossingTap = (doc, tapId) =>
   doc.segments.some((s) => touchesTap(s, tapId) && (crossingVia(doc, s.from) || crossingVia(doc, s.to)));
@@ -232,7 +260,7 @@ export function validate(doc) {
 
 function check(doc) {
   if (!doc || doc.schemaVersion !== SCHEMA_VERSION) return [`Unsupported schemaVersion (expected ${SCHEMA_VERSION}).`];
-  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps', 'crossings'];
+  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps', 'crossings', 'junctions'];
   for (const k of lists) if (!Array.isArray(doc[k])) return [`Missing "${k}" list.`];
 
   const errors = [];
@@ -273,6 +301,9 @@ function check(doc) {
       errors.push('A text note is invalid.');
     }
   }
+  for (const j of doc.junctions) {
+    if (!sheetOk(j.sheetId) || !finite(j.x, j.y)) errors.push('A wire branch point is on a missing sheet.');
+  }
   for (const b of doc.bundles) {
     const pointsOk = Array.isArray(b.points) && b.points.length >= 2 && b.points.every((q) => Number.isInteger(q?.x) && Number.isInteger(q?.y));
     if (typeof b.name !== 'string' || !b.name.trim() || !isRich(b.description)) errors.push('A bundle has no name or an invalid description.');
@@ -301,6 +332,8 @@ function check(doc) {
     wireNames.add(nameKey(w.name));
     if (w.direction !== 'directed' && w.direction !== 'bidirectional') errors.push(`${w.name} has an unknown direction.`);
     if (!isRich(w.description)) errors.push(`${w.name} has an invalid description.`);
+    if (w.universal !== undefined && w.universal !== true) errors.push(`${w.name} has an invalid universal setting.`);
+    if (w.universal && w.direction !== 'bidirectional') errors.push(`${w.name} is universal, so it must be bidirectional.`);
   }
   const viaKeys = new Set();
   for (const v of doc.vias) {
@@ -346,6 +379,13 @@ function check(doc) {
   for (const t of doc.taps) {
     if (!doc.segments.some((s) => touchesTap(s, t.id))) errors.push(`${byId(doc.wires, t.wireId).name} has a bundle tap with no segments.`);
   }
+  for (const j of doc.junctions) {
+    const segs = doc.segments.filter((s) => touchesJunction(s, j.id));
+    const wires = new Set(segs.map((s) => s.wireId));
+    if (segs.length < 2 || wires.size !== 1) { errors.push('A wire branch point must join segments of one wire.'); continue; }
+    const w = byId(doc.wires, segs[0].wireId);
+    if (w.direction === 'directed') errors.push(`${w.name} is directed, so it can't branch partway along a wire.`);
+  }
   for (const w of doc.wires) errors.push(...treeProblems(doc, w));
   return errors;
 }
@@ -370,6 +410,11 @@ function endpointProblem(doc, seg, ep) {
     if (!u) return 'a segment ends at a missing unknown load';
     return u.sheetId === seg.sheetId ? null : 'a segment ends on a different sheet';
   }
+  if (ep.kind === 'junction') {
+    const j = byId(doc.junctions, ep.junctionId);
+    if (!j) return 'a segment ends at a missing branch point';
+    return j.sheetId === seg.sheetId ? null : 'a segment ends at a branch point on a different sheet';
+  }
   if (ep.kind === 'tap') {
     const t = byId(doc.taps, ep.tapId);
     if (!t || t.wireId !== seg.wireId) return 'a segment ends at a missing bundle tap';
@@ -388,8 +433,11 @@ function treeProblems(doc, w) {
   if (!edges.length) return [`${w.name} has no segments.`];
   for (const e of edges) if (e.a === e.b) return [`${w.name} would connect ${nodeName(doc, e.a)} to itself.`];
   const comps = components(edges);
-  if (comps.length > 1) return [`${w.name} would be split into ${comps.length} disconnected pieces.`];
-  if (comps[0].nodes.size !== edges.length + 1) return [`${w.name} would form a loop.`];
+  // A universal wire (like ground) is connected everywhere, so its pieces needn't
+  // touch; each piece is still a tree.
+  if (comps.length > 1 && !w.universal) return [`${w.name} would be split into ${comps.length} disconnected pieces.`];
+  const nodes = comps.reduce((n, c) => n + c.nodes.size, 0);
+  if (nodes !== edges.length + comps.length) return [`${w.name} would form a loop.`];
   if (w.direction === 'directed') {
     const incoming = new Map();
     for (const e of edges) {
@@ -415,6 +463,7 @@ export function apply(doc, command) {
   try {
     const handler = commands[command.type] || fail(`Unknown command ${command.type}.`);
     const result = handler(next, command) || {};
+    tidyJunctions(next);
     attachCrossings(next);
     const problems = validate(next);
     if (problems.length) return { error: problems[0] };
@@ -598,6 +647,27 @@ function resolveTarget(doc, sheetId, t, role, wire) {
       run(sheetId, tapEp(last), tapEp(tap));
       return { kind: 'tap', tapId: tap.id, pulledOut: true };
     }
+    case 'branch': {
+      // Branching partway along a wire: split the segment at a new branch point.
+      const seg = byId(doc.segments, t.segmentId);
+      if (!seg || seg.sheetId !== sheetId) fail('That wire is not on this sheet.');
+      const other = byId(doc.wires, seg.wireId);
+      if (other.id !== wire.id) fail(`That line is ${other.name}; a branch from it has to be ${other.name} too.`);
+      if (wire.direction === 'directed') fail(`${wire.name} is directed, so it can't branch partway along. Branch it from a module or via instead.`);
+      const j = { id: newId(), sheetId, x: Number(t.x) || 0, y: Number(t.y) || 0 };
+      doc.junctions.push(j);
+      const point = { kind: 'junction', junctionId: j.id };
+      doc.segments.push({ id: newId(), wireId: wire.id, sheetId, from: point, to: seg.to });
+      seg.to = point;
+      return { ...point, branched: true };
+    }
+    case 'junction': {
+      const j = byId(doc.junctions, t.junctionId);
+      if (!j || j.sheetId !== sheetId) fail('That branch point is not on this sheet.');
+      const on = doc.segments.find((s) => touchesJunction(s, j.id));
+      if (on && on.wireId !== wire.id) fail(`That branch point is on ${byId(doc.wires, on.wireId).name}, not ${wire.name}.`);
+      return { kind: 'junction', junctionId: j.id };
+    }
     case 'tap': {
       const tp = byId(doc.taps, t.tapId);
       const b = tp && byId(doc.bundles, tp.bundleId);
@@ -632,7 +702,9 @@ function sweep(doc) {
     doc.crossings = doc.crossings.filter((c) => byId(doc.bundles, c.outerId) && byId(doc.bundles, c.innerId) && byId(doc.placements, c.placementId));
     doc.vias = doc.vias.filter((v) => !v.crossingId || byId(doc.crossings, v.crossingId));
     doc.taps = doc.taps.filter((t) => byId(doc.bundles, t.bundleId));
+    doc.junctions = doc.junctions.filter((j) => sheetOk(j.sheetId));
     const exists = (ep) => {
+      if (ep.kind === 'junction') return !!byId(doc.junctions, ep.junctionId);
       if (ep.kind === 'module') return !!byId(doc.placements, ep.placementId);
       if (ep.kind === 'tap') return !!byId(doc.taps, ep.tapId);
       if (ep.kind === 'unknown') return !!byId(doc.unknownLoads, ep.unknownId);
@@ -651,6 +723,7 @@ const directedRoots = (doc) =>
 function prune(doc, roots) {
   for (const w of doc.wires) {
     const comps = components(wireEdges(doc, w.id));
+    if (w.universal) continue; // every piece of a universal wire stays
     const keep = w.direction === 'directed'
       ? comps.find((c) => c.nodes.has(roots.get(w.id)))
       : comps.sort((a, b) => b.edges.size - a.edges.size)[0];
@@ -762,18 +835,23 @@ const commands = {
     if (isNew) {
       wire = {
         id: newId(), name, color: spec.color || DEFAULT_WIRE_COLOR, description: '',
-        direction: spec.direction === 'bidirectional' ? 'bidirectional' : 'directed',
+        direction: spec.direction === 'bidirectional' || spec.universal ? 'bidirectional' : 'directed',
       };
+      if (spec.universal) wire.universal = true;
       doc.wires.push(wire);
     }
     const reached = new Set(wireEdges(doc, wire.id).flatMap((e) => [e.a, e.b]));
     const a = resolveTarget(doc, sheetId, from, 'from', wire);
-    // Pulling a wire out of a bundle starts where it already runs inside.
-    if (a.pulledOut) {
-      delete a.pulledOut;
-      reached.add(endpointNode(doc, a));
+    // Pulling a wire out of a bundle, or branching from partway along it, starts
+    // (or ends) where the wire already is.
+    for (const ep of [a]) {
+      if (ep.pulledOut || ep.branched) reached.add(endpointNode(doc, ep));
+      delete ep.pulledOut;
+      delete ep.branched;
     }
     const b = resolveTarget(doc, sheetId, to, 'to', wire);
+    if (b.branched) reached.add(endpointNode(doc, b));
+    delete b.branched;
     if (tapBundle(doc, a) && tapBundle(doc, a) === tapBundle(doc, b)) fail('Pull the wire out somewhere off the bundle.');
     const na = endpointNode(doc, a);
     const nb = endpointNode(doc, b);
@@ -783,7 +861,8 @@ const commands = {
         fail('An unknown load can only end one wire. Promote it to a module to continue from it.');
       }
     }
-    if (!isNew) {
+    // A universal wire can be drawn anywhere; it is assumed connected everywhere.
+    if (!isNew && !wire.universal) {
       const ra = reached.has(na);
       const rb = reached.has(nb);
       const extendable = listNames([...reached].filter((n) => !n.startsWith('u:')).map((n) => nodeName(doc, n)).slice(0, 4));
@@ -803,11 +882,22 @@ const commands = {
     if (description !== undefined) o.description = cleanRich(description);
   },
 
-  editWire(doc, { id, name, color, description }) {
+  // universal: true makes a wire universal (and bidirectional); false makes it
+  // ordinary again, which needs all its pieces joined into one.
+  editWire(doc, { id, name, color, description, universal }) {
     const w = get(doc.wires, id);
     if (name !== undefined) rename(doc, w, name, wireByName);
     if (color !== undefined) w.color = color;
     if (description !== undefined) w.description = cleanRich(description);
+    if (universal === true && !w.universal) {
+      if (w.direction === 'directed') commands.setDirection(doc, { wireId: w.id, direction: 'bidirectional' });
+      w.universal = true;
+    }
+    if (universal === false && w.universal) {
+      const pieces = components(wireEdges(doc, w.id)).length;
+      if (pieces > 1) fail(`${w.name} is in ${pieces} separate pieces, so it has to stay universal until they're joined.`);
+      delete w.universal;
+    }
   },
 
   mergeObjects(doc, { fromId, intoId }) {
@@ -828,6 +918,7 @@ const commands = {
     const b = get(doc.wires, intoId);
     if (a === b) fail('Nothing to merge.');
     if (a.direction !== b.direction) fail(`Make ${a.name} and ${b.name} the same direction before merging.`);
+    if (a.universal) b.universal = true;
     for (const v of doc.vias.filter((v) => v.wireId === a.id)) {
       const twin = doc.vias.find((o) => o.wireId === b.id && o.subsystemId === v.subsystemId && o.direction === v.direction && o.crossingId === v.crossingId);
       if (twin) remapVia(doc, v.id, twin.id);
@@ -841,6 +932,10 @@ const commands = {
   setDirection(doc, { wireId, direction, origin }) {
     const w = get(doc.wires, wireId);
     if (w.direction === direction) return;
+    if (direction === 'directed' && w.universal) fail(`${w.name} is universal, so it is always bidirectional.`);
+    if (direction === 'directed' && doc.segments.some((s) => s.wireId === w.id && (s.from.kind === 'junction' || s.to.kind === 'junction'))) {
+      fail(`${w.name} branches partway along, which directed wires can't. Remove those branches first.`);
+    }
     if (direction === 'bidirectional') {
       w.direction = 'bidirectional';
       for (const v of doc.vias.filter((v) => v.wireId === w.id)) {

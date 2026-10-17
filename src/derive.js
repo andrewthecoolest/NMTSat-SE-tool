@@ -5,7 +5,7 @@ import { bundleChain, byId, insideBundle, wireEdges, wireOrigin } from './model.
 // reaching modules, unknown loads, or a via or tap with nothing beyond it.
 // dir: 'down' follows segment direction, 'up' goes against it, 'any' ignores it.
 function terminals(edges, node, prev, dir) {
-  if (!node.startsWith('v:') && !node.startsWith('t:')) return [node];
+  if (!node.startsWith('v:') && !node.startsWith('t:') && !node.startsWith('j:')) return [node];
   const next = edges
     .filter((e) => (dir === 'down' ? e.a === node : dir === 'up' ? e.b === node : e.a === node || e.b === node))
     .map((e) => (e.a === node ? e.b : e.a))
@@ -19,6 +19,7 @@ export function describeNode(doc, node) {
   if (node.startsWith('m:')) return { name: byId(doc.objects, id)?.name ?? '?', objectId: id, unresolved: false };
   if (node.startsWith('u:')) return { name: 'Unknown load', unresolved: true };
   if (node.startsWith('t:')) return { name: `${byId(doc.bundles, byId(doc.taps, id)?.bundleId)?.name ?? '?'} (in bundle)`, unresolved: true };
+  if (node.startsWith('j:')) return { name: 'Branch point', unresolved: true };
   const via = byId(doc.vias, id);
   return { name: `${byId(doc.objects, via?.subsystemId)?.name ?? '?'} (open via)`, unresolved: true };
 }
@@ -29,6 +30,19 @@ export function connections(doc, objectId) {
   const result = { in: [], out: [] };
   for (const wire of doc.wires) {
     const edges = wireEdges(doc, wire.id);
+    // A universal wire (like ground) connects everything on it, in any piece:
+    // every other module and unknown load on it is a peer.
+    if (wire.universal) {
+      const nodes = new Set(edges.flatMap((e) => [e.a, e.b]));
+      if (!nodes.has(me)) continue;
+      for (const node of nodes) {
+        if (node === me || !(node.startsWith('m:') || node.startsWith('u:'))) continue;
+        const entry = { wire, ...describeNode(doc, node), universal: true };
+        result.in.push(entry);
+        result.out.push(entry);
+      }
+      continue;
+    }
     const directed = wire.direction === 'directed';
     for (const e of edges) {
       if (e.a !== me && e.b !== me) continue;
@@ -109,6 +123,7 @@ export function wireSummary(doc, wireId) {
       : origin.startsWith('t:') ? { name: `${byId(doc.bundles, byId(doc.taps, origin.slice(2)).bundleId).name} (bundle)` }
       : describeNode(doc, origin)),
     endpoints: nodes
+      .filter((n) => !n.startsWith('j:'))
       .filter((n) => (!n.startsWith('v:') || isOpenVia(doc, byId(doc.vias, n.slice(2)))) && (!n.startsWith('t:') || isOpenTap(doc, byId(doc.taps, n.slice(2)))))
       .map((n) => describeNode(doc, n)),
     nodes,

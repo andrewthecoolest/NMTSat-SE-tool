@@ -1,7 +1,7 @@
 // App wiring: state, history, pointer/keyboard handling, toolbar.
 import { apply, byId, emptyDoc, upgrade, validate, wireByName } from './model.js';
 import { bundleSummary, sheetName, sheetPath, status } from './derive.js';
-import { G, itemsInRect, nearestSide, renderSheet, segmentEnds, wireGhost } from './view.js';
+import { G, itemsInRect, nearestSide, renderSheet, segmentEnds, segmentRoute, wireGhost } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
 import { createPreview } from './preview.js';
@@ -321,16 +321,25 @@ function ask(dialog, values) {
 function syncWireDialog() {
   const form = wireDialog.querySelector('form');
   const existing = wireByName(doc, form.elements.name.value);
-  form.elements.color.disabled = form.elements.direction.disabled = !!existing;
+  form.elements.color.disabled = form.elements.universal.disabled = !!existing;
   if (existing) {
     form.elements.color.value = existing.color;
     form.elements.direction.value = existing.direction;
+    form.elements.universal.checked = !!existing.universal;
   }
+  // A universal wire is always bidirectional.
+  if (!existing && form.elements.universal.checked) form.elements.direction.value = 'bidirectional';
+  form.elements.direction.disabled = !!existing || form.elements.universal.checked;
   document.getElementById('wireHint').textContent = existing
-    ? `Extends the existing ${existing.direction} wire ${existing.name}.`
-    : 'Creates a new wire.';
+    ? existing.universal
+      ? `Adds to the universal wire ${existing.name}: it is connected everywhere it appears.`
+      : `Extends the existing ${existing.direction} wire ${existing.name}.`
+    : form.elements.universal.checked
+      ? 'Creates a universal wire (like ground): draw it anywhere; all its pieces count as connected.'
+      : 'Creates a new wire.';
 }
 wireDialog.querySelector('[name=name]').addEventListener('input', syncWireDialog);
+wireDialog.querySelector('[name=universal]').addEventListener('change', syncWireDialog);
 
 async function askWire(name) {
   const pending = ask(wireDialog, { name, color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], direction: 'directed' });
@@ -406,6 +415,12 @@ function targetAt(el, pt) {
   if (kind === 'via') return { kind: 'via', viaId: id };
   if (kind === 'boundary') return { kind: 'boundary', x: Math.round(pt.x / G), y: Math.round(pt.y / G) };
   if (kind === 'tap') return { kind: 'tap', tapId: id };
+  if (kind === 'junction') return { kind: 'junction', junctionId: id };
+  if (kind === 'segment') {
+    // On a wire's line: branch from (or join) it at the nearest point on it.
+    const at = nearestOnRoute(segmentRoute(doc, byId(doc.segments, id)) ?? [pt], pt);
+    return { kind: 'branch', segmentId: id, x: at.x / G, y: at.y / G };
+  }
   if (kind === 'bundle' || kind === 'bundlePoint') {
     const b = byId(doc.bundles, id);
     return { kind: 'bundle', bundleId: id, at: project(b.points, pt.x / G, pt.y / G) };
@@ -413,10 +428,35 @@ function targetAt(el, pt) {
   return { kind: 'newUnknown', x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) };
 }
 
-const targetKey = (t) => t.placementId || t.unknownId || t.viaId || t.tapId || t.bundleId || t.kind;
+const targetKey = (t) => t.placementId || t.unknownId || t.viaId || t.tapId || t.bundleId || t.segmentId || t.junctionId || t.kind;
 
-// The wire already tied to a drop target (via, port or bundle tap), if any.
-const targetWire = (t) => byId(doc.wires, byId(doc.vias, t?.viaId)?.wireId || byId(doc.taps, t?.tapId)?.wireId);
+// The point on a drawn route (px) nearest pt.
+function nearestOnRoute(pts, pt) {
+  let best = pts[0];
+  let bestD = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const [p, q] = [pts[i - 1], pts[i]];
+    const len2 = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+    const t = len2 ? Math.max(0, Math.min(1, ((pt.x - p.x) * (q.x - p.x) + (pt.y - p.y) * (q.y - p.y)) / len2)) : 0;
+    const c = { x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) };
+    const d = Math.hypot(c.x - pt.x, c.y - pt.y);
+    if (d < bestD) [best, bestD] = [c, d];
+  }
+  return best;
+}
+
+// The wire already tied to a drop target (via, port, bundle tap, branch point
+// or a wire's line), if any.
+function targetWire(t) {
+  if (!t) return undefined;
+  if (t.kind === 'branch') return byId(doc.wires, byId(doc.segments, t.segmentId)?.wireId);
+  if (t.kind === 'junction') {
+    const seg = doc.segments.find((s) => [s.from, s.to].some((ep) => ep.kind === 'junction' && ep.junctionId === t.junctionId));
+    return seg && byId(doc.wires, seg.wireId);
+  }
+  return byId(doc.wires, byId(doc.vias, t.viaId)?.wireId || byId(doc.taps, t.tapId)?.wireId);
+}
+const onWire = (t) => t?.kind === 'branch' || t?.kind === 'junction';
 
 // Where the wire being drawn ends: the thing under the pointer, or the pointer
 // itself while it is still over the starting point.
@@ -440,9 +480,11 @@ function wireStyle(w) {
 async function finishWire(from, to) {
   renderCanvas();
   const known = targetWire(from) || targetWire(to);
-  const answer = from.pull ? { name: from.pull } : await askWire(known ? known.name : '');
+  // Branching from (or joining) a wire's line can only continue that wire.
+  const branchOf = (onWire(from) && targetWire(from)) || (onWire(to) && targetWire(to));
+  const answer = from.pull ? { name: from.pull } : branchOf ? { name: branchOf.name } : await askWire(known ? known.name : '');
   if (!answer) return;
-  const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from, to, wire: answer });
+  const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from, to, wire: { ...answer, universal: answer.universal === 'on' } });
   if (r) {
     selection = { kind: 'segment', id: r.id };
     render();
@@ -758,6 +800,10 @@ svg.addEventListener('pointerup', async (e) => {
   } else if (d.type === 'wire') {
     const to = targetAt(elementAt(e), pt);
     const click = Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < G / 2;
+    if (d.from.kind === 'branch' && targetWire(d.from)?.direction === 'directed') {
+      renderCanvas();
+      return toast(`${targetWire(d.from).name} is directed, so it can't branch partway along. Start from a module or via instead.`);
+    }
     // Starting on a bundle pulls a wire out of it: ask which one first.
     if (d.from.kind === 'bundle') {
       renderCanvas();

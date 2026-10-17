@@ -68,6 +68,10 @@ function endShape(doc, ep) {
     const tap = byId(doc.taps, ep.tapId);
     return bundleSpot(byId(doc.bundles, tap.bundleId), tap.at);
   }
+  if (ep.kind === 'junction') {
+    const j = byId(doc.junctions, ep.junctionId);
+    return { point: { x: j.x * G, y: j.y * G }, radius: 0 };
+  }
   const via = byId(doc.vias, ep.viaId);
   return { point: { x: via.x * G, y: via.y * G }, radius: VIA_R };
 }
@@ -238,6 +242,11 @@ function wireLayout(doc, sheetId) {
   return layout;
 }
 
+// The points a segment is drawn through (px), as laid out on its sheet.
+export function segmentRoute(doc, seg) {
+  return wireLayout(doc, seg.sheetId).routes.get(seg.id) ?? null;
+}
+
 // Where a segment's two ends are drawn (for dragging an end around its module).
 export function segmentEnds(doc, seg) {
   const pts = wireLayout(doc, seg.sheetId).routes.get(seg.id);
@@ -268,8 +277,8 @@ function segmentMarkup(doc, seg, selected) {
   const lx = (pts[best].x + pts[best + 1].x) / 2;
   const ly = (pts[best].y + pts[best + 1].y) / 2;
 
-  return `<g class="wire${selected ? ' selected' : ''}" data-kind="segment" data-id="${seg.id}">
-    <title>${esc(wire.name)}</title>
+  return `<g class="wire${wire.universal ? ' universal' : ''}${selected ? ' selected' : ''}" data-kind="segment" data-id="${seg.id}">
+    <title>${esc(wire.name)}${wire.universal ? ' (universal)' : ''}</title>
     <path class="hit" d="${d}"/>
     <path class="line" d="${d}" stroke="${esc(wire.color)}"/>
     ${head}
@@ -287,6 +296,8 @@ function targetShape(doc, t) {
     return { point: portPoint(p, { portSide: t.side, portOffset: t.offset }), side: t.side, radius: PORT_R };
   }
   if (t.kind === 'tap') return byId(doc.taps, t.tapId) ? endShape(doc, t) : null;
+  if (t.kind === 'junction') return byId(doc.junctions, t.junctionId) ? endShape(doc, t) : null;
+  if (t.kind === 'branch') return { point: { x: t.x * G, y: t.y * G }, radius: 0 };
   if (t.kind === 'bundle') {
     const b = byId(doc.bundles, t.bundleId);
     return b ? bundleSpot(b, t.at) : null;
@@ -304,6 +315,7 @@ function ghostMark(doc, t, shape, color) {
   }
   if (t.kind === 'subsystem') return `<circle class="ghost-port" cx="${shape.point.x}" cy="${shape.point.y}" r="${PORT_R}" stroke="${esc(color)}"/>`;
   if (t.kind === 'bundle') return `<circle class="ghost-port" cx="${shape.point.x}" cy="${shape.point.y}" r="${TAP_R + 1}" stroke="${esc(color)}"/>`;
+  if (t.kind === 'branch') return `<circle class="ghost-junction" cx="${shape.point.x}" cy="${shape.point.y}" r="4" fill="${esc(color)}"/>`;
   if (shape.rect && t.kind !== 'point') {
     const r = shape.rect;
     return `<rect class="ghost-target" x="${r.x - 3}" y="${r.y - 3}" width="${r.w + 6}" height="${r.h + 6}" stroke="${esc(color)}"/>`;
@@ -576,6 +588,13 @@ export function renderSheet(doc, { sheetId, parentName, selection, view, width, 
   for (const p of doc.placements) if (p.sheetId === sheetId) parts.push(placementMarkup(doc, p, sel('placement', p.id)));
   for (const b of doc.bundles) if (b.sheetId === sheetId) parts.push(bundleMarkup(doc, b, sel('bundle', b.id)));
   for (const s of doc.segments) if (s.sheetId === sheetId && !insideBundle(doc, s)) parts.push(segmentMarkup(doc, s, sel('segment', s.id)));
+  // Branch points: a dot where a wire splits partway along.
+  for (const j of doc.junctions) {
+    if (j.sheetId !== sheetId) continue;
+    const seg = doc.segments.find((x) => [x.from, x.to].some((ep) => ep.kind === 'junction' && ep.junctionId === j.id));
+    const wire = seg && byId(doc.wires, seg.wireId);
+    if (wire) parts.push(`<g class="junction" data-kind="junction" data-id="${j.id}"><title>${esc(wire.name)}</title><circle cx="${j.x * G}" cy="${j.y * G}" r="4" fill="${esc(wire.color)}"/></g>`);
+  }
   for (const t of doc.taps) {
     const b = byId(doc.bundles, t.bundleId);
     if (b.sheetId !== sheetId) continue;

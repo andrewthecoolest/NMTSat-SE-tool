@@ -175,7 +175,12 @@ function wirePage(app) {
       colorInput(wire.color, (e) => save(app, e, { type: 'editWire', id: wire.id, color: e.target.value })))),
     section('DESCRIPTION', descriptionInput(app, wire.description, (description) => ({ type: 'editWire', id: wire.id, description }))),
     section('DIRECTION',
-      h('select', { onchange: setDirection },
+      h('label', { class: 'check' },
+        h('input', { type: 'checkbox', checked: !!wire.universal, onchange: (e) => {
+          if (!app.commit({ type: 'editWire', id: wire.id, universal: e.target.checked })) e.target.checked = !e.target.checked;
+        } }),
+        'Universal (like ground): connected everywhere it appears'),
+      h('select', { onchange: setDirection, disabled: !!wire.universal },
         h('option', { value: 'directed', selected: wire.direction === 'directed' || subject.orienting }, 'Directed'),
         h('option', { value: 'bidirectional', selected: wire.direction === 'bidirectional' && !subject.orienting }, 'Bidirectional')),
       orient),
