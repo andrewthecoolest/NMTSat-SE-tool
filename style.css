@@ -39,7 +39,7 @@ button.danger { color: var(--danger); }
 main { position: relative; flex: 1; overflow: hidden; }
 
 #canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; user-select: none; }
-#canvas[data-tool="module"], #canvas[data-tool="subsystem"], #canvas[data-tool="unknown"], #canvas[data-tool="wire"] { cursor: crosshair; }
+#canvas[data-tool="module"], #canvas[data-tool="subsystem"], #canvas[data-tool="unknown"], #canvas[data-tool="wire"], #canvas[data-tool="bundle"] { cursor: crosshair; }
 #canvas[data-tool="text"] { cursor: text; }
 
 #crumbs {
@@ -133,6 +133,13 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .box.subsystem .body { stroke-dasharray: 5 4; }
 .box.selected .body { stroke-width: 3; }
 .box .label { font-size: 13px; text-anchor: middle; dominant-baseline: central; fill: var(--ink); pointer-events: none; }
+/* Hover-preview zones: a box's inner area and a bundle's label pill. With the
+   Select tool the zone is outlined faintly while the box is hovered. */
+.peek { fill: transparent; stroke: none; }
+#canvas[data-tool="select"] .peek { cursor: zoom-in; }
+#canvas[data-tool="select"] .box:hover .peek { stroke: #94a3b8; stroke-opacity: 0.45; stroke-dasharray: 3 3; }
+.bundle-pill { fill: #fff; stroke: #cbd5e1; }
+#canvas[data-tool="select"] .bundle:hover .bundle-pill { stroke: #94a3b8; }
 .info { cursor: pointer; }
 .info circle { fill: #fff; stroke: #9ca3af; }
 .info text { font: italic bold 10px Georgia, serif; text-anchor: middle; dominant-baseline: central; fill: var(--muted); pointer-events: none; }
@@ -181,7 +188,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 }
 #preview[hidden] { display: none; }
 #preview.closing { transition-duration: 0.2s; transition-timing-function: ease-in; pointer-events: none; }
-#preview[data-type="module"] { cursor: pointer; }
+#preview[data-type="module"], #preview[data-type="bundle"] { cursor: pointer; }
 #preview header { flex: none; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; }
 #preview header .swatch { flex: none; margin: 0; }
 #preview header .name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
@@ -206,5 +213,27 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .wire-ghost .ghost-x { stroke: var(--ink); stroke-width: 2; stroke-opacity: 0.5; }
 .wire-ghost .ghost-port { fill: #fff; stroke-width: 2; }
 .wire-ghost .ghost-target { fill: none; stroke-width: 2; stroke-opacity: 0.5; rx: 3; }
+/* Bundles: a thicker two-tone line with capped ends; taps mark where wires go in or out. */
+.bundle .hit { fill: none; stroke: transparent; stroke-width: 18; }
+.bundle .outer { fill: none; stroke: #475569; stroke-width: 9; stroke-linejoin: round; }
+.bundle .inner { fill: none; stroke: #e2e8f0; stroke-width: 4; stroke-linejoin: round; pointer-events: none; }
+.bundle .cap { stroke: #475569; stroke-width: 3; pointer-events: none; }
+.bundle.selected .outer, .bundle.selected .cap { stroke: #1e293b; }
+.bundle.selected .outer { stroke-width: 11; }
+.bundle-label { font-size: 11px; text-anchor: middle; fill: #475569; paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none; }
+.tap { cursor: grab; }
+.tap circle { stroke-width: 2; }
+.tap.selected circle { stroke-width: 4; }
+.bundle-draft { fill: none; stroke: #475569; stroke-width: 9; stroke-opacity: 0.45; stroke-linejoin: round; pointer-events: none; }
+/* Exploded bundle diagram in the hover preview. */
+.track { fill: #f1f5f9; stroke: #cbd5e1; }
+.track-end { font: bold 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--muted); }
+.cut { stroke: #94a3b8; stroke-dasharray: 3 3; }
+.lane { stroke-width: 3; }
+.lane-tap { stroke-width: 2; }
+.lane-name { font-size: 11px; font-weight: bold; }
+.lane-note { font-size: 10px; fill: var(--muted); }
+.lane-note.unresolved { fill: var(--unresolved); }
+
 .marquee { fill: rgba(37, 99, 235, 0.08); stroke: #2563eb; stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
 #canvas.panning, #canvas[data-tool].panning { cursor: grab; }

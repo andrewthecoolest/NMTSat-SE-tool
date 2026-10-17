@@ -1,12 +1,13 @@
-// Hover preview of a box: after the pointer rests on it for half a second, a
-// read-only window expands from the box. A subsystem shows its sheet (60% of the
-// canvas) with its description, contents and boundary wires beside it; a module
-// shows a card with its description and connections. Moving the pointer out of
-// the preview shrinks it straight back; clicking it opens the subsystem or info.
+// Hover preview of a box or bundle: after the pointer rests on it for half a
+// second, a read-only window expands from it. A subsystem shows its sheet (60% of
+// the canvas) with its description, contents and boundary wires beside it; a
+// bundle shows its wires exploded into lanes beside its sections; a module shows
+// a card with its description and connections. Moving the pointer out of the
+// preview shrinks it straight back; clicking it opens the subsystem or info.
 import { byId } from './model.js';
-import { appearsOn, connections, sheetName, subsystemSummary } from './derive.js';
-import { renderSheet, sheetBounds } from './view.js';
-import { h } from './panel.js';
+import { appearsOn, bundleSummary, connections, sheetName, subsystemSummary } from './derive.js';
+import { bundleDiagram, renderSheet, sheetBounds } from './view.js';
+import { bundleSectionLines, bundleWireLines, h } from './panel.js';
 import { plainText, richToHtml } from './richtext.js';
 
 const HOVER_MS = 500;
@@ -55,6 +56,21 @@ function moduleDetails(doc, obj) {
     section('APPEARS ON', list(appearsOn(doc, obj.id).map((id) => h('li', {}, sheetName(doc, id))))));
 }
 
+function bundleDetails(doc, summary) {
+  return h('aside', { class: 'details scroll' },
+    section('DESCRIPTION', description(summary.bundle.description)),
+    section('SECTIONS', list(bundleSectionLines(summary).map((x) => h('li', {}, x.text)))),
+    section('WIRES', list(bundleWireLines(summary).map((x) => h('li', { class: x.unresolved ? 'unresolved' : '' }, swatch(x.wire.color), `${x.wire.name}: ${x.text}`)))));
+}
+
+// The bundle untangled: one lane per wire (see bundleDiagram in view.js).
+function bundleView(summary) {
+  const { markup, width, height } = bundleDiagram(summary);
+  const holder = document.createElement('div');
+  holder.innerHTML = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">${markup}</svg>`;
+  return holder.firstElementChild;
+}
+
 function title(obj) {
   const hint = obj.type === 'subsystem' ? 'Click to open · move away to close' : 'Click for info · move away to close';
   return h('header', {}, swatch(obj.color), h('span', { class: 'name' }, obj.name), h('span', { class: 'hint' }, hint));
@@ -80,9 +96,10 @@ function sheetView(doc, obj, w, h, parentName) {
 
 // ---- the preview window -----------------------------------------------------
 
+// Previews are keyed "p:<placement id>" (a box) or "b:<bundle id>" (a bundle).
 // host: the element the preview covers. getDoc(): the current document.
-// boxRect(placementId): screen rect of that box, or null. parentName(): name of
-// the sheet being viewed. onOpen(placementId): open what the preview shows.
+// boxRect(key): screen rect of that box or bundle, or null. parentName(): name
+// of the sheet being viewed. onOpen(key): open what the preview shows.
 export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
   const el = document.createElement('div');
   el.id = 'preview';
@@ -90,8 +107,8 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
   host.append(el);
 
   let timer = null;
-  let waitingFor = null;   // placement id the hover timer is running for
-  let open = null;         // { placementId, from } while expanded
+  let waitingFor = null;   // key the hover timer is running for
+  let open = null;         // { key, from } while expanded
   let closeTimer = null;
   let pointer = { x: 0, y: 0 }; // last pointer position, relative to host
 
@@ -117,31 +134,33 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
     waitingFor = null;
   }
 
-  // Call on every pointer move over the canvas with the hovered box's
-  // placement id, or null when not over one.
-  function hover(placementId) {
-    if (open || placementId === waitingFor) return;
+  // Call on every pointer move over the canvas with the hovered key, or null.
+  function hover(key) {
+    if (open || key === waitingFor) return;
     cancel();
-    if (!placementId) return;
-    waitingFor = placementId;
-    timer = setTimeout(() => expand(placementId), HOVER_MS);
+    if (!key) return;
+    waitingFor = key;
+    timer = setTimeout(() => expand(key), HOVER_MS);
   }
 
   // The module card's natural height at a given width, capped at maxHeight.
+  // Measured with transitions off; expand() turns them back on from the box.
   function cardHeight(width, maxHeight) {
     Object.assign(el.style, { left: '0px', top: '0px', width: `${width}px`, height: 'auto', visibility: 'hidden', transition: 'none' });
     el.hidden = false;
     const natural = el.offsetHeight;
-    Object.assign(el.style, { visibility: '', transition: '' });
+    el.style.visibility = '';
     return Math.min(natural, maxHeight);
   }
 
-  function expand(placementId) {
+  function expand(key) {
     cancel();
     const doc = getDoc();
-    const p = byId(doc.placements, placementId);
-    const obj = p && byId(doc.objects, p.objectId);
-    const rect = boxRect(placementId);
+    const [kind, id] = key.split(':');
+    const bundle = kind === 'b' && byId(doc.bundles, id);
+    const p = kind === 'p' && byId(doc.placements, id);
+    const obj = bundle ? { type: 'bundle', name: bundle.name, color: '#475569' } : p && byId(doc.objects, p.objectId);
+    const rect = boxRect(key);
     if (!obj || !rect) return;
 
     const hr = host.getBoundingClientRect();
@@ -152,7 +171,12 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
 
     let width;
     let height;
-    if (obj.type === 'subsystem') {
+    if (bundle) {
+      width = hr.width * SIZE;
+      height = hr.height * SIZE;
+      const summary = bundleSummary(doc, bundle.id);
+      el.replaceChildren(title(obj), h('div', { class: 'split' }, bundleView(summary), bundleDetails(doc, summary)));
+    } else if (obj.type === 'subsystem') {
       width = hr.width * SIZE;
       height = hr.height * SIZE;
       const sheetWidth = width * (1 - SIDE);
@@ -169,19 +193,22 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
       width,
       height,
     };
+    // Jump to the box with transitions off, then grow from there to the final size.
     el.hidden = false;
+    el.style.transition = 'none';
     place(from);
-    el.getBoundingClientRect(); // start the transition from the box
+    el.getBoundingClientRect();
+    el.style.transition = '';
     place(final);
-    open = { placementId, from };
+    open = { key, from };
   }
 
   function hide(animate = true) {
     cancel();
     if (!open) return;
-    const { from, placementId } = open;
+    const { from, key } = open;
     open = null;
-    waitingFor = placementId; // don't reopen until the pointer has left that box
+    waitingFor = key; // don't reopen until the pointer has left that box or bundle
     const finish = () => {
       el.hidden = true;
       el.classList.remove('closing');
@@ -209,9 +236,9 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
     if (!e.target.closest('.scroll')) e.preventDefault();
   }, { passive: false });
   el.addEventListener('click', () => {
-    const id = open?.placementId;
+    const key = open?.key;
     hide(false);
-    if (id) onOpen(id);
+    if (key) onOpen(key);
   });
 
   return { hover, cancel, hide };

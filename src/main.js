@@ -5,6 +5,7 @@ import { G, itemsInRect, nearestSide, renderSheet, wireGhost } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
 import { createPreview } from './preview.js';
+import { project } from './bundles.js';
 import { plainText, richEditor, richToHtml } from './richtext.js';
 
 const NOTE_BOX = { w: 8, h: 2 }; // default text box size, in grid units
@@ -17,6 +18,7 @@ const statusEl = document.getElementById('status');
 const toastEl = document.getElementById('toast');
 const objectDialog = document.getElementById('objectDialog');
 const wireDialog = document.getElementById('wireDialog');
+const pullDialog = document.getElementById('pullDialog');
 const noteDialog = document.getElementById('noteDialog');
 const noteEditorEl = document.getElementById('noteEditor');
 
@@ -30,6 +32,7 @@ let subject = null;        // what the info view shows
 let preview = null;        // document shown instead of `doc` while dragging
 let drag = null;
 let wiring = null;         // a wire started by a click, following the pointer until the next click
+let bundling = null;       // a bundle being laid out: { points (grid), cursor (grid) }
 let spaceDown = false;     // Space held: dragging pans
 let lastClick = {};        // for double-click detection
 const views = {};          // sheet id -> { x, y, k }
@@ -37,10 +40,20 @@ const views = {};          // sheet id -> { x, y, k }
 const hoverPreview = createPreview({
   host: document.querySelector('main'),
   getDoc: () => doc,
-  boxRect: (id) => svg.querySelector(`[data-kind="placement"][data-id="${id}"] > .body`)?.getBoundingClientRect() ?? null,
+  boxRect: (key) => {
+    const [kind, id] = key.split(':');
+    const el = kind === 'b' ? svg.querySelector(`[data-kind="bundle"][data-id="${id}"] > .peek`) : svg.querySelector(`[data-kind="placement"][data-id="${id}"] > .body`);
+    return el?.getBoundingClientRect() ?? null;
+  },
   parentName: () => sheetName(doc, currentSheet()),
-  // Clicking a preview enters the subsystem, or opens the module's info view.
-  onOpen: (placementId) => {
+  // Clicking a preview enters the subsystem, or opens the module's or bundle's info view.
+  onOpen: (key) => {
+    const [kind, placementId] = key.split(':');
+    if (kind === 'b') {
+      selection = { kind: 'bundle', id: placementId };
+      subject = { kind: 'bundle', id: placementId };
+      return render();
+    }
     const p = byId(doc.placements, placementId);
     const obj = p && byId(doc.objects, p.objectId);
     if (!obj) return;
@@ -116,7 +129,7 @@ function replaceDoc(next, message) {
 
 // ---- rendering --------------------------------------------------------------
 
-const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias', note: 'notes' };
+const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias', note: 'notes', bundle: 'bundles', tap: 'taps' };
 
 function render(keepPanel = false) {
   // Leave sheets that no longer exist (e.g. after undo or delete).
@@ -139,7 +152,7 @@ function render(keepPanel = false) {
   }));
 
   const s = status(doc);
-  statusEl.textContent = `${plural(s.unknownLoads, 'unknown load')} · ${plural(s.openVias, 'open via')}`;
+  statusEl.textContent = `${plural(s.unknownLoads, 'unknown load')} · ${plural(s.openVias, 'open via')}${s.openTaps ? ` · ${plural(s.openTaps, 'open bundle tap')}` : ''}`;
 
   document.getElementById('objectNames').replaceChildren(...doc.objects.map((o) => h('option', { value: o.name })));
   document.getElementById('wireNames').replaceChildren(...doc.wires.map((w) => h('option', { value: w.name })));
@@ -155,6 +168,10 @@ function renderCanvas() {
   }
   const w = drag?.type === 'wire' ? drag : wiring;
   if (w) overlay = wireGhost(doc, w.from, ghostEnd(w), wireStyle(w));
+  if (bundling) {
+    const pts = [...bundling.points, orthoFrom(bundling.points[bundling.points.length - 1], bundling.cursor)];
+    overlay = `<path class="bundle-draft" d="M${pts.map((q) => `${q.x * G},${q.y * G}`).join(' L')}"/>`;
+  }
   if (drag?.type === 'marquee') {
     const r = rectFrom(drag.start, drag.end);
     overlay = `<rect class="marquee" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"/>`;
@@ -185,7 +202,7 @@ function panelApp() {
       panelEl.close();
       goTo(sheetPath(doc, id) ?? ['root']);
     },
-    removePlacement, deleteEverywhere, deleteSegment, deleteUnknown,
+    removePlacement, deleteEverywhere, deleteSegment, deleteUnknown, deleteBundle,
   };
 }
 
@@ -243,12 +260,12 @@ function deleteUnknown(id) {
 // Delete everything in a box selection as one undo step. Items already removed
 // along with an earlier one (e.g. a segment on a deleted module) are skipped.
 function deleteMany(items) {
-  const order = ['note', 'segment', 'unknown', 'placement'];
+  const order = ['note', 'segment', 'tap', 'unknown', 'bundle', 'placement'];
   const sorted = items.filter((x) => order.includes(x.kind)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   let next = doc;
   for (const { kind, id } of sorted) {
     if (!byId(next[LISTS[kind]], id)) continue;
-    let cmd = { type: { note: 'deleteNote', segment: 'deleteSegment', unknown: 'deleteUnknown' }[kind], id };
+    let cmd = { type: { note: 'deleteNote', segment: 'deleteSegment', tap: 'deleteTap', unknown: 'deleteUnknown', bundle: 'deleteBundle' }[kind], id };
     if (kind === 'placement') {
       const p = byId(next.placements, id);
       const last = next.placements.filter((x) => x.objectId === p.objectId).length === 1;
@@ -264,6 +281,16 @@ function deleteMany(items) {
   toast(`Deleted ${plural(sorted.length, 'item')}${andSegments(lost)}. Undo brings it back.`);
 }
 
+function deleteBundle(id) {
+  const b = byId(doc.bundles, id);
+  commitDeletion({ type: 'deleteBundle', id }, () => `Removed ${b.name}; its wires now run directly.`);
+}
+
+function deleteTap(id) {
+  const wire = byId(doc.wires, byId(doc.taps, id).wireId);
+  commitDeletion({ type: 'deleteTap', id }, (lost) => `Removed where ${wire.name} meets the bundle${andSegments(lost)}.`);
+}
+
 function deleteSelection() {
   if (!selection) return;
   if (selection.kind === 'many') return deleteMany(selection.items);
@@ -272,6 +299,8 @@ function deleteSelection() {
   if (kind === 'unknown') deleteUnknown(id);
   if (kind === 'segment') deleteSegment(id);
   if (kind === 'note') commit({ type: 'deleteNote', id });
+  if (kind === 'bundle') deleteBundle(id);
+  if (kind === 'tap') deleteTap(id);
   if (kind === 'via') toast('Vias follow their segments. Delete a segment instead.');
 }
 
@@ -375,10 +404,18 @@ function targetAt(el, pt) {
   if (kind === 'unknown') return { kind: 'unknown', unknownId: id };
   if (kind === 'via') return { kind: 'via', viaId: id };
   if (kind === 'boundary') return { kind: 'boundary', x: Math.round(pt.x / G), y: Math.round(pt.y / G) };
+  if (kind === 'tap') return { kind: 'tap', tapId: id };
+  if (kind === 'bundle' || kind === 'bundlePoint') {
+    const b = byId(doc.bundles, id);
+    return { kind: 'bundle', bundleId: id, at: project(b.points, pt.x / G, pt.y / G) };
+  }
   return { kind: 'newUnknown', x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) };
 }
 
-const targetKey = (t) => t.placementId || t.unknownId || t.viaId || t.kind;
+const targetKey = (t) => t.placementId || t.unknownId || t.viaId || t.tapId || t.bundleId || t.kind;
+
+// The wire already tied to a drop target (via, port or bundle tap), if any.
+const targetWire = (t) => byId(doc.wires, byId(doc.vias, t?.viaId)?.wireId || byId(doc.taps, t?.tapId)?.wireId);
 
 // Where the wire being drawn ends: the thing under the pointer, or the pointer
 // itself while it is still over the starting point.
@@ -393,20 +430,49 @@ function ghostEnd(w) {
 // Color and direction of the wire being drawn: an existing wire's when it starts
 // (or ends) at one of its vias, else the new wire's defaults.
 function wireStyle(w) {
-  const via = byId(doc.vias, w.from.viaId) || byId(doc.vias, w.hover?.viaId);
-  const wire = via && byId(doc.wires, via.wireId);
+  const wire = (w.from.pull && wireByName(doc, w.from.pull)) || targetWire(w.from) || targetWire(w.hover);
   if (wire) return { color: wire.color, directed: wire.direction === 'directed' };
   return { color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], directed: true };
 }
 
+// A wire pulled out of a bundle already has its name (from.pull); otherwise ask.
 async function finishWire(from, to) {
   renderCanvas();
-  const via = byId(doc.vias, from.viaId) || byId(doc.vias, to.viaId);
-  const answer = await askWire(via ? byId(doc.wires, via.wireId).name : '');
+  const known = targetWire(from) || targetWire(to);
+  const answer = from.pull ? { name: from.pull } : await askWire(known ? known.name : '');
   if (!answer) return;
   const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from, to, wire: answer });
   if (r) {
     selection = { kind: 'segment', id: r.id };
+    render();
+  }
+}
+
+// Ask which wire to pull out of a bundle (null if cancelled, or if it carries none).
+async function askPull(bundleId) {
+  const b = byId(doc.bundles, bundleId);
+  const inside = doc.wires.filter((w) => doc.taps.some((t) => t.bundleId === b.id && t.wireId === w.id));
+  if (!inside.length) {
+    toast(`No wires are in ${b.name} yet. Draw a wire onto it to put it in.`);
+    return null;
+  }
+  document.getElementById('pullTitle').textContent = `Pull a wire out of ${b.name}`;
+  document.getElementById('bundleWires').replaceChildren(...inside.map((w) => h('option', { value: w.name })));
+  const answer = await ask(pullDialog, { name: inside.length === 1 ? inside[0].name : '' });
+  return answer?.name.trim() || null;
+}
+
+// Bundle legs are horizontal or vertical: the next point lines up with the last.
+const orthoFrom = (last, g) => (Math.abs(g.x - last.x) >= Math.abs(g.y - last.y) ? { x: g.x, y: last.y } : { x: last.x, y: g.y });
+const gridPoint = (pt) => ({ x: Math.round(pt.x / G), y: Math.round(pt.y / G) });
+
+function finishBundle() {
+  const points = bundling?.points ?? [];
+  bundling = null;
+  if (points.length < 2) return renderCanvas();
+  const r = commit({ type: 'addBundle', sheetId: currentSheet(), points });
+  if (r) {
+    selection = { kind: 'bundle', id: r.id };
     render();
   }
 }
@@ -461,6 +527,20 @@ function startSelect(el, pt) {
     selection = { kind, id };
     subject = { kind: 'wire', id: byId(doc.segments, id).wireId, segmentId: id };
     render();
+  } else if (kind === 'bundle') {
+    // Click selects (and drags) a bundle; double-click opens its info.
+    selection = { kind, id };
+    if (double) subject = { kind: 'bundle', id };
+    else drag = { type: 'moveBundle', id, sx: gx, sy: gy };
+    render();
+  } else if (kind === 'bundlePoint') {
+    drag = { type: 'moveBundlePoint', id, index: Number(el.dataset.index) };
+  } else if (kind === 'tap') {
+    // Click selects a tap and drags it along its bundle; double-click opens its wire's info.
+    selection = { kind, id };
+    if (double) subject = { kind: 'wire', id: byId(doc.taps, id).wireId };
+    else drag = { type: 'moveTap', id };
+    render();
   }
 }
 
@@ -479,14 +559,26 @@ function dragCommand(d, pt) {
     return { type: 'moveNote', id: d.id, w: gx - n.x, h: gy - n.y };
   }
   if (d.type === 'moveVia') return { type: 'moveVia', id: d.id, x: gx, y: gy };
+  if (d.type === 'moveTap') {
+    const t = byId(doc.taps, d.id);
+    return { type: 'moveTap', id: d.id, at: project(byId(doc.bundles, t.bundleId).points, gx, gy) };
+  }
+  if (d.type === 'moveBundle') return { type: 'moveBundle', id: d.id, dx: Math.round(gx - d.sx), dy: Math.round(gy - d.sy) };
+  if (d.type === 'moveBundlePoint') return { type: 'moveBundlePoint', id: d.id, index: d.index, x: Math.round(gx), y: Math.round(gy) };
   if (d.type === 'movePort') return { type: 'movePort', id: d.id, ...nearestSide(byId(doc.placements, d.placementId), pt) };
   return null;
 }
 
-// The box (module or subsystem placement) under the pointer, if any, for the hover preview.
+// What the hover preview would show for the thing under the pointer: a box
+// ("p:<placement id>") or a bundle ("b:<bundle id>"). Only each one's preview
+// zone counts (a box's inner area, a bundle's label), so wiring near edges,
+// the i button and taps never opens a preview.
 function hoveredBox(e) {
-  const box = e.target.closest?.('[data-kind="placement"]');
-  return box && byId(doc.placements, box.dataset.id) ? box.dataset.id : null;
+  if (!e.target.closest?.('.peek')) return null;
+  const box = e.target.closest('[data-kind="placement"]');
+  if (box && byId(doc.placements, box.dataset.id)) return 'p:' + box.dataset.id;
+  const bundle = e.target.closest('[data-kind="bundle"]');
+  return bundle && byId(doc.bundles, bundle.dataset.id) ? 'b:' + bundle.dataset.id : null;
 }
 
 svg.addEventListener('pointerdown', (e) => {
@@ -518,6 +610,17 @@ svg.addEventListener('pointerdown', (e) => {
     commit({ type: 'addUnknown', sheetId: currentSheet(), x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) });
   } else if (tool === 'wire') {
     drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt, hover: null };
+  } else if (tool === 'bundle') {
+    // Each click adds a corner; clicking the last point again (a double-click) finishes.
+    const g = gridPoint(pt);
+    if (!bundling) bundling = { points: [g], cursor: g };
+    else {
+      const last = bundling.points[bundling.points.length - 1];
+      const next = orthoFrom(last, g);
+      if (next.x === last.x && next.y === last.y) return finishBundle();
+      bundling.points.push(next);
+    }
+    renderCanvas();
   }
 });
 
@@ -528,6 +631,10 @@ svg.addEventListener('pointermove', (e) => {
     if (wiring) {
       wiring.end = pt;
       wiring.hover = targetAt(elementAt(e), pt);
+      renderCanvas();
+    }
+    if (bundling) {
+      bundling.cursor = gridPoint(pt);
       renderCanvas();
     }
     return;
@@ -559,8 +666,10 @@ svg.addEventListener('pointerup', async (e) => {
   } else if (d.cmd) {
     const moved = preview && JSON.stringify(preview) !== JSON.stringify(doc);
     preview = null;
-    if (moved) commit(d.cmd);
-    else renderCanvas();
+    if (moved) {
+      lastClick = {}; // a press that became a drag doesn't count toward a double-click
+      commit(d.cmd);
+    } else renderCanvas();
   } else if (d.type === 'box') {
     const box = boxFrom(d.start, pt);
     const objectType = tool;
@@ -579,8 +688,17 @@ svg.addEventListener('pointerup', async (e) => {
     render();
   } else if (d.type === 'wire') {
     const to = targetAt(elementAt(e), pt);
+    const click = Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < G / 2;
+    // Starting on a bundle pulls a wire out of it: ask which one first.
+    if (d.from.kind === 'bundle') {
+      renderCanvas();
+      if (!click && ghostEnd({ ...d, hover: to }).kind === 'point') return;
+      const pull = await askPull(d.from.bundleId);
+      if (!pull) return;
+      d.from = { ...d.from, pull };
+    }
     // A click (no real drag) starts a wire that follows the pointer until the next click.
-    if (Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < G / 2) {
+    if (click) {
       wiring = { ...d, end: pt, hover: to };
       renderCanvas();
     } else if (ghostEnd({ ...d, hover: to }).kind === 'point') {
@@ -618,15 +736,16 @@ window.addEventListener('resize', renderCanvas);
 
 function setTool(name) {
   tool = name;
-  if (wiring) {
+  if (wiring || bundling) {
     wiring = null;
+    bundling = null;
     renderCanvas();
   }
   svg.dataset.tool = name;
   for (const b of document.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
 }
 
-const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire', t: 'text' };
+const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire', b: 'bundle', t: 'text' };
 
 document.addEventListener('keydown', (e) => {
   hoverPreview.hide();
@@ -650,6 +769,11 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape' && wiring) {
     wiring = null; // cancel the wire being drawn, but stay in the Wire tool
     renderCanvas();
+  } else if (e.key === 'Escape' && bundling) {
+    bundling = null; // cancel the bundle being laid out, but stay in the Bundle tool
+    renderCanvas();
+  } else if (e.key === 'Enter' && bundling) {
+    finishBundle();
   } else if (e.key === 'Escape') {
     setTool('select');
     selection = null;

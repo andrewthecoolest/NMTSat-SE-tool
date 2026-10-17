@@ -1,6 +1,6 @@
 // The info view: a large centered dialog laid out like a man page.
 import { byId, nodeName, objectByName, wireByName } from './model.js';
-import { appearsOn, connections, sheetName, subsystemSummary, wireSummary } from './derive.js';
+import { appearsOn, bundleSummary, connections, sheetName, subsystemSummary, wireSummary } from './derive.js';
 import { richEditor } from './richtext.js';
 
 export function h(tag, props = {}, ...children) {
@@ -50,6 +50,7 @@ export function renderPanel(el, app) {
   if (subject?.kind === 'object' && byId(doc.objects, subject.id)) content = objectPage(app);
   if (subject?.kind === 'wire' && byId(doc.wires, subject.id)) content = wirePage(app);
   if (subject?.kind === 'unknown' && byId(doc.unknownLoads, subject.id)) content = unknownPage(app);
+  if (subject?.kind === 'bundle' && byId(doc.bundles, subject.id)) content = bundlePage(app);
   if (!content) {
     el.replaceChildren();
     if (el.open) el.close();
@@ -183,6 +184,43 @@ function wirePage(app) {
     section('APPEARS ON', sheetLinks(app, summary.sheets)),
     subject.segmentId && byId(doc.segments, subject.segmentId) &&
       h('footer', {}, h('button', { class: 'danger', onclick: () => app.deleteSegment(subject.segmentId) }, 'Delete segment')),
+  ];
+}
+
+// Where each wire in a bundle goes in and out, in words (shared with the hover preview).
+// e.g. "in from OBC → out to Radio at End B", or "OBC at End A ↔ GPS" for a bidirectional wire.
+export function bundleWireLines(summary) {
+  return summary.lanes.map((lane) => {
+    const directed = lane.wire.direction === 'directed';
+    const where = lane.points.map((p) => {
+      const outside = p.outside.map((o) => o.names.map((n) => n.name).join(', ')).join('; ') || 'nothing yet';
+      const place = p.at === 0 || p.at === summary.length ? ` at ${summary.cutLabel(p.at)}` : '';
+      if (lane.waiting) return `in from ${outside}${place}, not pulled out`;
+      if (!directed) return `${outside}${place}`;
+      return `${p.role} ${p.role === 'in' ? 'from' : 'to'} ${outside}${place}`;
+    });
+    return { wire: lane.wire, text: where.join(directed ? ' → ' : ' ↔ '), unresolved: lane.points.some((p) => p.open) };
+  });
+}
+
+export function bundleSectionLines(summary) {
+  return summary.sections.map((s) => ({ text: `${summary.cutLabel(s.from)} → ${summary.cutLabel(s.to)}: ${s.wires.map((w) => w.name).join(', ') || 'empty'}` }));
+}
+
+function bundlePage(app) {
+  const { doc, subject } = app;
+  const b = byId(doc.bundles, subject.id);
+  const summary = bundleSummary(doc, b.id);
+  return [
+    header(app, `${b.name}(bundle)`),
+    section('NAME', textInput(b.name, (e) => {
+      if (save(app, e, { type: 'editBundle', id: b.id, name: e.target.value })) e.target.closest('.page').querySelector('.title').textContent = `${e.target.value.trim()}(bundle)`;
+    }, { class: 'name' })),
+    section('DESCRIPTION', descriptionInput(app, b.description, (description) => ({ type: 'editBundle', id: b.id, description }))),
+    section('SECTIONS', list(bundleSectionLines(summary).map((x) => h('li', {}, x.text)))),
+    section('WIRES', list(bundleWireLines(summary).map((x) => h('li', { class: x.unresolved ? 'unresolved' : '' }, swatch(x.wire.color), `${x.wire.name}: ${x.text}`)), 'No wires yet. Draw a wire onto the bundle to put it in.')),
+    section('APPEARS ON', sheetLinks(app, [b.sheetId])),
+    h('footer', {}, h('button', { class: 'danger', onclick: () => app.deleteBundle(b.id) }, 'Delete bundle')),
   ];
 }
 

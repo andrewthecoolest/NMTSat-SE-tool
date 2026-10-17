@@ -1,22 +1,23 @@
 // Document model. Every change goes through apply(doc, command), which works on
 // a copy and only returns the new document if it still satisfies every invariant.
 import { isRich, normalize, plainText, runsOf } from './richtext.js';
+import { cleanPoints, isOrthogonal, movePoint, pathLength, pointAt } from './bundles.js';
 
 export const SCHEMA_VERSION = 1;
-const DEFAULT_OBJECT_COLOR = '#334155';
+export const DEFAULT_OBJECT_COLOR = '#334155';
 const DEFAULT_WIRE_COLOR = '#2563eb';
 const SIDES = ['top', 'right', 'bottom', 'left'];
 const PORT_SPREAD = [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6];
 
 export function emptyDoc() {
-  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [] };
+  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [] };
 }
 
-// Older documents: no notes list, or notes without a size (they used to size
-// themselves to their text: about 8px per character and 18px per line).
+// Older documents: no notes, bundles or taps lists, or notes without a size (they
+// used to size themselves to their text: about 8px per character and 18px per line).
 export function upgrade(data) {
   if (!data || typeof data !== 'object') return data;
-  if (!('notes' in data)) data.notes = [];
+  for (const k of ['notes', 'bundles', 'taps']) if (!(k in data)) data[k] = [];
   if (!Array.isArray(data.notes)) return data;
   for (const n of data.notes) {
     if (!n || typeof n !== 'object' || ('w' in n && 'h' in n)) continue;
@@ -42,8 +43,10 @@ const get = (list, id) => byId(list, id) || fail('That item no longer exists.');
 const clamp01 = (n) => Math.min(1, Math.max(0, Number(n) || 0));
 
 // ---------------------------------------------------------------------------
-// Wire graphs. Nodes are module entities ("m:id"), unknown loads ("u:id") and
-// vias ("v:id"); a via and its ports are one node.
+// Wire graphs. Nodes are module entities ("m:id"), unknown loads ("u:id"), vias
+// ("v:id"; a via and its ports are one node) and bundle taps ("t:id": where a
+// wire enters or leaves a bundle). A segment between two taps of the same
+// bundle runs inside it.
 
 export function endpointNode(doc, ep) {
   if (ep.kind === 'module') {
@@ -52,6 +55,7 @@ export function endpointNode(doc, ep) {
   }
   if (ep.kind === 'unknown') return 'u:' + ep.unknownId;
   if (ep.kind === 'port' || ep.kind === 'via') return 'v:' + ep.viaId;
+  if (ep.kind === 'tap') return 't:' + ep.tapId;
   return null;
 }
 
@@ -65,6 +69,7 @@ export function nodeName(doc, node) {
   const id = node.slice(2);
   if (node.startsWith('m:')) return byId(doc.objects, id)?.name ?? '?';
   if (node.startsWith('u:')) return 'an unknown load';
+  if (node.startsWith('t:')) return `${byId(doc.bundles, byId(doc.taps, id)?.bundleId)?.name ?? '?'} (bundle)`;
   const via = byId(doc.vias, id);
   return `${byId(doc.objects, via?.subsystemId)?.name ?? '?'} (via)`;
 }
@@ -106,6 +111,10 @@ function components(edges) {
 }
 
 const touchesVia = (s, viaId) => [s.from, s.to].some((ep) => (ep.kind === 'via' || ep.kind === 'port') && ep.viaId === viaId);
+const touchesTap = (s, tapId) => [s.from, s.to].some((ep) => ep.kind === 'tap' && ep.tapId === tapId);
+const tapBundle = (doc, ep) => (ep?.kind === 'tap' ? byId(doc.taps, ep.tapId)?.bundleId : undefined);
+// A segment that runs inside a bundle (between two of its taps).
+export const insideBundle = (doc, s) => !!tapBundle(doc, s.from) && tapBundle(doc, s.from) === tapBundle(doc, s.to);
 const touchesUnknown = (s, unknownId) => [s.from, s.to].some((ep) => ep.kind === 'unknown' && ep.unknownId === unknownId);
 
 // True if sheetId is outerId's sheet or lies (transitively) inside it.
@@ -137,7 +146,7 @@ export function validate(doc) {
 
 function check(doc) {
   if (!doc || doc.schemaVersion !== SCHEMA_VERSION) return [`Unsupported schemaVersion (expected ${SCHEMA_VERSION}).`];
-  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes'];
+  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps'];
   for (const k of lists) if (!Array.isArray(doc[k])) return [`Missing "${k}" list.`];
 
   const errors = [];
@@ -178,6 +187,12 @@ function check(doc) {
       errors.push('A text note is invalid.');
     }
   }
+  for (const b of doc.bundles) {
+    const pointsOk = Array.isArray(b.points) && b.points.length >= 2 && b.points.every((q) => Number.isInteger(q?.x) && Number.isInteger(q?.y));
+    if (typeof b.name !== 'string' || !b.name.trim() || !isRich(b.description)) errors.push('A bundle has no name or an invalid description.');
+    else if (!sheetOk(b.sheetId)) errors.push(`${b.name} is on a missing sheet.`);
+    else if (!pointsOk || !isOrthogonal(b.points) || !pathLength(b.points)) errors.push(`${b.name} needs a path of straight horizontal and vertical legs.`);
+  }
   if (errors.length) return errors;
 
   const wireNames = new Set();
@@ -202,6 +217,12 @@ function check(doc) {
       errors.push(`${w.name} has a via with an invalid position.`);
     }
   }
+  for (const t of doc.taps) {
+    const b = byId(doc.bundles, t.bundleId);
+    const w = byId(doc.wires, t.wireId);
+    if (!b || !w) { errors.push('A bundle tap refers to a missing bundle or wire.'); continue; }
+    if (!(t.at >= 0 && t.at <= pathLength(b.points))) errors.push(`${w.name} enters or leaves ${b.name} past its end.`);
+  }
   for (const s of doc.segments) {
     const w = byId(doc.wires, s.wireId);
     if (!w) { errors.push('A segment refers to a missing wire.'); continue; }
@@ -218,6 +239,9 @@ function check(doc) {
   }
   for (const v of doc.vias) {
     if (!doc.segments.some((s) => touchesVia(s, v.id))) errors.push(`${byId(doc.wires, v.wireId).name} has a via with no segments.`);
+  }
+  for (const t of doc.taps) {
+    if (!doc.segments.some((s) => touchesTap(s, t.id))) errors.push(`${byId(doc.wires, t.wireId).name} has a bundle tap with no segments.`);
   }
   for (const w of doc.wires) errors.push(...treeProblems(doc, w));
   return errors;
@@ -239,6 +263,11 @@ function endpointProblem(doc, seg, ep) {
     const u = byId(doc.unknownLoads, ep.unknownId);
     if (!u) return 'a segment ends at a missing unknown load';
     return u.sheetId === seg.sheetId ? null : 'a segment ends on a different sheet';
+  }
+  if (ep.kind === 'tap') {
+    const t = byId(doc.taps, ep.tapId);
+    if (!t || t.wireId !== seg.wireId) return 'a segment ends at a missing bundle tap';
+    return byId(doc.bundles, t.bundleId)?.sheetId === seg.sheetId ? null : 'a segment ends at a bundle on a different sheet';
   }
   if (ep.kind === 'via') {
     const v = byId(doc.vias, ep.viaId);
@@ -385,8 +414,33 @@ function resolveTarget(doc, sheetId, t, role, wire) {
       const via = findOrCreateVia(doc, wire, sheetId, 'inside', role, t);
       return { kind: 'via', viaId: via.id };
     }
+    case 'bundle': {
+      // Ending on a bundle puts the wire in there. Starting on one pulls a wire
+      // that is already inside out there: it runs inside from its nearest tap.
+      const b = byId(doc.bundles, t.bundleId);
+      if (!b || b.sheetId !== sheetId) fail('That bundle is not on this sheet.');
+      const at = Math.min(Math.max(0, Math.round(Number(t.at) || 0)), pathLength(b.points));
+      const tap = { id: newId(), bundleId: b.id, wireId: wire.id, at };
+      if (role === 'to') {
+        doc.taps.push(tap);
+        return { kind: 'tap', tapId: tap.id };
+      }
+      const mine = doc.taps.filter((x) => x.bundleId === b.id && x.wireId === wire.id);
+      if (!mine.length) fail(`${wire.name} isn't in ${b.name}. Draw it onto the bundle to put it in first.`);
+      const near = mine.reduce((best, x) => (Math.abs(x.at - at) < Math.abs(best.at - at) ? x : best));
+      doc.taps.push(tap);
+      doc.segments.push({ id: newId(), wireId: wire.id, sheetId, from: { kind: 'tap', tapId: near.id }, to: { kind: 'tap', tapId: tap.id } });
+      return { kind: 'tap', tapId: tap.id, pulledOut: true };
+    }
+    case 'tap': {
+      const tp = byId(doc.taps, t.tapId);
+      const b = tp && byId(doc.bundles, tp.bundleId);
+      if (!b || b.sheetId !== sheetId) fail('That bundle is not on this sheet.');
+      if (tp.wireId !== wire.id) fail(`That point on ${b.name} is where ${byId(doc.wires, tp.wireId).name} goes in or out, not ${wire.name}.`);
+      return { kind: 'tap', tapId: tp.id };
+    }
   }
-  return fail('Draw between modules, subsystems, unknown loads or the sheet boundary.');
+  return fail('Draw between modules, subsystems, unknown loads, bundles or the sheet boundary.');
 }
 
 function listNames(names) {
@@ -408,8 +462,11 @@ function sweep(doc) {
     doc.unknownLoads = doc.unknownLoads.filter((u) => sheetOk(u.sheetId));
     doc.notes = doc.notes.filter((n) => sheetOk(n.sheetId));
     doc.vias = doc.vias.filter((v) => objectIds.has(v.subsystemId));
+    doc.bundles = doc.bundles.filter((b) => sheetOk(b.sheetId));
+    doc.taps = doc.taps.filter((t) => byId(doc.bundles, t.bundleId));
     const exists = (ep) => {
       if (ep.kind === 'module') return !!byId(doc.placements, ep.placementId);
+      if (ep.kind === 'tap') return !!byId(doc.taps, ep.tapId);
       if (ep.kind === 'unknown') return !!byId(doc.unknownLoads, ep.unknownId);
       if (ep.kind === 'via') return !!byId(doc.vias, ep.viaId);
       return !!byId(doc.placements, ep.placementId) && !!byId(doc.vias, ep.viaId);
@@ -433,6 +490,7 @@ function prune(doc, roots) {
     doc.segments = doc.segments.filter((s) => s.wireId !== w.id || kept.has(s));
   }
   doc.vias = doc.vias.filter((v) => doc.segments.some((s) => touchesVia(s, v.id)));
+  doc.taps = doc.taps.filter((t) => doc.segments.some((s) => touchesTap(s, t.id)));
   doc.wires = doc.wires.filter((w) => doc.segments.some((s) => s.wireId === w.id));
 }
 
@@ -499,7 +557,13 @@ const commands = {
     }
     const reached = new Set(wireEdges(doc, wire.id).flatMap((e) => [e.a, e.b]));
     const a = resolveTarget(doc, sheetId, from, 'from', wire);
+    // Pulling a wire out of a bundle starts where it already runs inside.
+    if (a.pulledOut) {
+      delete a.pulledOut;
+      reached.add(endpointNode(doc, a));
+    }
     const b = resolveTarget(doc, sheetId, to, 'to', wire);
+    if (tapBundle(doc, a) && tapBundle(doc, a) === tapBundle(doc, b)) fail('Pull the wire out somewhere off the bundle.');
     const na = endpointNode(doc, a);
     const nb = endpointNode(doc, b);
     if (na === nb) fail(`A wire can't connect ${nodeName(doc, na)} to itself.`);
@@ -559,6 +623,7 @@ const commands = {
       else v.wireId = b.id;
     }
     for (const s of doc.segments) if (s.wireId === a.id) s.wireId = b.id;
+    for (const t of doc.taps) if (t.wireId === a.id) t.wireId = b.id;
     doc.wires = doc.wires.filter((w) => w !== a);
   },
 
@@ -673,6 +738,105 @@ const commands = {
     }
     n.text = clean;
     if (h !== undefined) n.h = Math.max(1, Math.round(h));
+  },
+
+  addBundle(doc, { sheetId, points }) {
+    checkSheet(doc, sheetId);
+    const clean = cleanPoints(points ?? []);
+    if (clean.length < 2) fail('A bundle needs at least two points.');
+    if (!isOrthogonal(clean)) fail('Bundle legs must be horizontal or vertical.');
+    let n = doc.bundles.length + 1;
+    while (doc.bundles.some((b) => nameKey(b.name) === nameKey(`Bundle ${n}`))) n++;
+    const b = { id: newId(), sheetId, name: `Bundle ${n}`, description: '', points: clean };
+    doc.bundles.push(b);
+    return { id: b.id };
+  },
+
+  moveBundle(doc, { id, dx, dy }) {
+    const b = get(doc.bundles, id);
+    b.points = b.points.map((q) => ({ x: q.x + Math.round(dx), y: q.y + Math.round(dy) }));
+  },
+
+  // Move one corner or end; taps keep their distance from end A (clamped to the new length).
+  moveBundlePoint(doc, { id, index, x, y }) {
+    const b = get(doc.bundles, id);
+    if (!b.points[index]) fail('That bundle point no longer exists.');
+    b.points = movePoint(b.points, index, Math.round(x), Math.round(y));
+    if (b.points.length < 2) fail('A bundle needs at least two points.');
+    const length = pathLength(b.points);
+    for (const t of doc.taps) if (t.bundleId === b.id) t.at = Math.min(t.at, length);
+  },
+
+  editBundle(doc, { id, name, description }) {
+    const b = get(doc.bundles, id);
+    if (name !== undefined) {
+      if (!String(name).trim()) fail('Names cannot be empty.');
+      b.name = String(name).trim();
+    }
+    if (description !== undefined) b.description = cleanRich(description);
+  },
+
+  // Deleting a bundle dissolves it: each wire that went through is reconnected
+  // directly from where it went in to where it came out. A wire put in but never
+  // pulled out ends at a new unknown load where it went in.
+  deleteBundle(doc, { id }) {
+    const bundle = get(doc.bundles, id);
+    for (const w of doc.wires) {
+      const taps = new Set(doc.taps.filter((t) => t.bundleId === id && t.wireId === w.id).map((t) => 't:' + t.id));
+      if (!taps.size) continue;
+      const edges = wireEdges(doc, w.id);
+      const inner = edges.filter((e) => taps.has(e.a) && taps.has(e.b));
+      const outer = edges.filter((e) => taps.has(e.a) !== taps.has(e.b));
+      // Group the taps joined by runs inside the bundle.
+      const group = new Map([...taps].map((t) => [t, t]));
+      const find = (t) => (group.get(t) === t ? t : find(group.get(t)));
+      for (const e of inner) group.set(find(e.a), find(e.b));
+      const added = [];
+      for (const root of new Set([...taps].map(find))) {
+        const ends = outer
+          .filter((e) => find(taps.has(e.a) ? e.a : e.b) === root)
+          .map((e) => ({ ep: taps.has(e.a) ? e.seg.to : e.seg.from, entering: taps.has(e.b), tap: taps.has(e.a) ? e.a : e.b }));
+        if (ends.length === 1) {
+          const [only] = ends;
+          const pos = pointAt(bundle.points, byId(doc.taps, only.tap.slice(2)).at);
+          const u = { id: newId(), sheetId: bundle.sheetId, x: Math.floor(pos.x), y: Math.floor(pos.y) };
+          doc.unknownLoads.push(u);
+          const end = { kind: 'unknown', unknownId: u.id };
+          added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: only.entering ? only.ep : end, to: only.entering ? end : only.ep });
+          continue;
+        }
+        if (ends.length < 2) continue;
+        // Directed: from where it entered to each place it left. Otherwise: from one end to the rest.
+        let hub = w.direction === 'directed' ? ends.find((x) => x.entering) : null;
+        hub ||= ends.find((x) => x.ep.kind !== 'unknown') || ends[0];
+        const rest = ends.filter((x) => x !== hub);
+        if (hub.ep.kind === 'unknown' && rest.length > 1) {
+          fail(`Can't remove ${bundle.name}: an unknown load feeds ${w.name} to several places through it. Promote the unknown load first.`);
+        }
+        for (const x of rest) added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: hub.ep, to: x.ep });
+      }
+      const gone = new Set([...inner, ...outer].map((e) => e.seg));
+      doc.segments = doc.segments.filter((s) => !gone.has(s)).concat(added);
+    }
+    doc.bundles = doc.bundles.filter((b) => b.id !== id);
+    sweep(doc);
+    prune(doc, directedRoots(doc));
+  },
+
+  // Slide a tap along its bundle (whole grid units, within its ends).
+  moveTap(doc, { id, at }) {
+    const t = get(doc.taps, id);
+    const length = pathLength(get(doc.bundles, t.bundleId).points);
+    t.at = Math.min(Math.max(0, Math.round(Number(at) || 0)), length);
+  },
+
+  // Remove one place where a wire goes into or out of a bundle, with its segments.
+  deleteTap(doc, { id }) {
+    const roots = directedRoots(doc);
+    get(doc.taps, id);
+    doc.segments = doc.segments.filter((s) => !touchesTap(s, id));
+    doc.taps = doc.taps.filter((t) => t.id !== id);
+    prune(doc, roots);
   },
 
   deleteNote(doc, { id }) {

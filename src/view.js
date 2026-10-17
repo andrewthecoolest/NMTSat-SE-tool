@@ -1,5 +1,6 @@
 // SVG rendering of one sheet. Pure: returns markup for the current state.
-import { byId } from './model.js';
+import { DEFAULT_OBJECT_COLOR, byId, insideBundle } from './model.js';
+import { pathLength, pointAt } from './bundles.js';
 import { isOpenVia, viaDestinations } from './derive.js';
 import { richToHtml } from './richtext.js';
 
@@ -7,6 +8,8 @@ export const G = 20; // pixels per grid unit
 const VIA_R = 8;
 const PORT_R = 5;
 const NORMAL = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
+const TAP_R = 4;
+const PEEK_INSET = 16; // a box's hover-preview zone keeps this far from its edges (wires, ports, the i button)
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const pxRect = (p) => ({ x: p.x * G, y: p.y * G, w: p.w * G, h: p.h * G });
@@ -56,8 +59,26 @@ function endShape(doc, ep) {
     const via = byId(doc.vias, ep.viaId);
     return { point: portPoint(byId(doc.placements, ep.placementId), via), side: via.portSide, radius: PORT_R };
   }
+  if (ep.kind === 'tap') {
+    const tap = byId(doc.taps, ep.tapId);
+    return bundleSpot(byId(doc.bundles, tap.bundleId), tap.at);
+  }
   const via = byId(doc.vias, ep.viaId);
   return { point: { x: via.x * G, y: via.y * G }, radius: VIA_R };
+}
+
+// Where a wire meets a bundle `at` units along it. Wires leave a leg from its
+// side facing them, and leave an end straight out of that end.
+function bundleSpot(bundle, at) {
+  const p = pointAt(bundle.points, at);
+  const pts = bundle.points;
+  const length = pathLength(pts);
+  let endSide = null;
+  if (at <= 0 || at >= length) {
+    const [a, b] = at <= 0 ? [pts[1], pts[0]] : [pts[pts.length - 2], pts[pts.length - 1]];
+    endSide = b.x > a.x ? 'right' : b.x < a.x ? 'left' : b.y > a.y ? 'bottom' : 'top';
+  }
+  return { point: { x: p.x * G, y: p.y * G }, radius: TAP_R, leg: p.dir, endSide };
 }
 
 const centerOf = (s) => s.point || { x: s.rect.x + s.rect.w / 2, y: s.rect.y + s.rect.h / 2 };
@@ -70,9 +91,15 @@ function dominantSide(from, to) {
 }
 
 // Where a wire leaves a shape when heading toward `toward`, and which side it leaves from.
+function legSide(s, toward) {
+  if (s.endSide) return s.endSide;
+  if (s.leg === 'h') return toward.y < s.point.y ? 'top' : 'bottom';
+  return toward.x < s.point.x ? 'left' : 'right';
+}
+
 function anchor(s, toward) {
   if (s.point) {
-    const side = s.side || dominantSide(s.point, toward);
+    const side = s.side || (s.leg ? legSide(s, toward) : dominantSide(s.point, toward));
     const [nx, ny] = NORMAL[side];
     return { x: s.point.x + nx * s.radius, y: s.point.y + ny * s.radius, side };
   }
@@ -149,6 +176,11 @@ function targetShape(doc, t) {
     const p = byId(doc.placements, t.placementId);
     return { point: portPoint(p, { portSide: t.side, portOffset: t.offset }), side: t.side, radius: PORT_R };
   }
+  if (t.kind === 'tap') return byId(doc.taps, t.tapId) ? endShape(doc, t) : null;
+  if (t.kind === 'bundle') {
+    const b = byId(doc.bundles, t.bundleId);
+    return b ? bundleSpot(b, t.at) : null;
+  }
   if (t.kind === 'newUnknown') return { rect: { x: t.x * G, y: t.y * G, w: G, h: G } };
   if (t.kind === 'boundary') return { point: { x: t.x * G, y: t.y * G }, radius: 0 };
   return { point: { x: t.x, y: t.y }, radius: 0 };
@@ -161,6 +193,7 @@ function ghostMark(doc, t, shape, color) {
     return `<path class="ghost-x" d="M${x + m},${y + m} L${x + G - m},${y + G - m} M${x + G - m},${y + m} L${x + m},${y + G - m}"/>`;
   }
   if (t.kind === 'subsystem') return `<circle class="ghost-port" cx="${shape.point.x}" cy="${shape.point.y}" r="${PORT_R}" stroke="${esc(color)}"/>`;
+  if (t.kind === 'bundle') return `<circle class="ghost-port" cx="${shape.point.x}" cy="${shape.point.y}" r="${TAP_R + 1}" stroke="${esc(color)}"/>`;
   if (shape.rect && t.kind !== 'point') {
     const r = shape.rect;
     return `<rect class="ghost-target" x="${r.x - 3}" y="${r.y - 3}" width="${r.w + 6}" height="${r.h + 6}" stroke="${esc(color)}"/>`;
@@ -198,8 +231,12 @@ export function itemsInRect(doc, sheetId, r) {
   for (const u of doc.unknownLoads) {
     if (u.sheetId === sheetId && inside({ x: u.x * G, y: u.y * G, w: G, h: G })) items.push({ kind: 'unknown', id: u.id });
   }
+  for (const b of doc.bundles) {
+    if (b.sheetId === sheetId && b.points.every((q) => inside({ x: q.x * G, y: q.y * G, w: 0, h: 0 }))) items.push({ kind: 'bundle', id: b.id });
+  }
   for (const seg of doc.segments) {
-    if (seg.sheetId === sheetId && shapeInside(endShape(doc, seg.from)) && shapeInside(endShape(doc, seg.to))) items.push({ kind: 'segment', id: seg.id });
+    if (seg.sheetId !== sheetId || insideBundle(doc, seg)) continue;
+    if (shapeInside(endShape(doc, seg.from)) && shapeInside(endShape(doc, seg.to))) items.push({ kind: 'segment', id: seg.id });
   }
   return items;
 }
@@ -220,13 +257,25 @@ function portMarkup(doc, placement, via) {
   </g>`;
 }
 
+// The inner area of a box that opens its hover preview, clear of everything
+// near the edges. Boxes too small to have one have no preview.
+function peekZone(r) {
+  const w = r.w - 2 * PEEK_INSET;
+  const h = r.h - 2 * PEEK_INSET;
+  if (w < 12 || h < 8) return '';
+  return `<rect class="peek" x="${r.x + PEEK_INSET}" y="${r.y + PEEK_INSET}" width="${w}" height="${h}" rx="4"/>`;
+}
+
 function placementMarkup(doc, p, selected) {
   const o = byId(doc.objects, p.objectId);
   const r = pxRect(p);
   const ports = o.type === 'subsystem' ? doc.vias.filter((v) => v.subsystemId === o.id).map((v) => portMarkup(doc, p, v)).join('') : '';
   const handle = selected ? `<rect class="handle" data-kind="resize" data-id="${p.id}" x="${r.x + r.w - 5}" y="${r.y + r.h - 5}" width="10" height="10"/>` : '';
+  // A colored box gets a very light tint of its color; the default color stays white.
+  const tint = o.color.toLowerCase() === DEFAULT_OBJECT_COLOR ? '' : ` style="fill:color-mix(in srgb, ${esc(o.color)} 9%, #fff)"`;
   return `<g class="box ${o.type}${selected ? ' selected' : ''}" data-kind="placement" data-id="${p.id}">
-    <rect class="body" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" stroke="${esc(o.color)}"/>
+    <rect class="body" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" stroke="${esc(o.color)}"${tint}/>
+    ${peekZone(r)}
     <text class="label" x="${r.x + r.w / 2}" y="${r.y + r.h / 2}">${esc(o.name)}</text>
     <g class="info" data-kind="info" data-id="${p.id}">
       <title>Info</title>
@@ -246,6 +295,99 @@ function unknownMarkup(u, selected) {
     <rect x="${x}" y="${y}" width="${G}" height="${G}"/>
     <path d="M${x + m},${y + m} L${x + G - m},${y + G - m} M${x + G - m},${y + m} L${x + m},${y + G - m}"/>
   </g>`;
+}
+
+// A bundle: a thick two-tone line along its path, capped at both ends, labeled
+// with its name and how many wires it carries. Corner handles when selected.
+function bundleMarkup(doc, b, selected) {
+  const pts = b.points.map((q) => ({ x: q.x * G, y: q.y * G }));
+  const d = 'M' + pts.map((q) => `${q.x},${q.y}`).join(' L');
+  const cap = (q, from) => {
+    const vertical = from.x === q.x;
+    return vertical
+      ? `<line class="cap" x1="${q.x - 7}" y1="${q.y}" x2="${q.x + 7}" y2="${q.y}"/>`
+      : `<line class="cap" x1="${q.x}" y1="${q.y - 7}" x2="${q.x}" y2="${q.y + 7}"/>`;
+  };
+  let best = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const len = (j) => Math.abs(pts[j + 1].x - pts[j].x) + Math.abs(pts[j + 1].y - pts[j].y);
+    if (len(i) > len(best)) best = i;
+  }
+  const lx = (pts[best].x + pts[best + 1].x) / 2;
+  const ly = (pts[best].y + pts[best + 1].y) / 2;
+  const wires = new Set(doc.taps.filter((t) => t.bundleId === b.id).map((t) => t.wireId)).size;
+  const handles = selected
+    ? pts.map((q, i) => `<rect class="handle" data-kind="bundlePoint" data-id="${b.id}" data-index="${i}" x="${q.x - 5}" y="${q.y - 5}" width="10" height="10"/>`).join('')
+    : '';
+  return `<g class="bundle${selected ? ' selected' : ''}" data-kind="bundle" data-id="${b.id}">
+    <title>${esc(b.name)}</title>
+    <path class="hit" d="${d}"/>
+    <path class="outer" d="${d}"/>
+    <path class="inner" d="${d}"/>
+    ${cap(pts[0], pts[1])}${cap(pts[pts.length - 1], pts[pts.length - 2])}
+    ${(() => {
+      // The label sits on a small pill, which is the bundle's hover-preview zone.
+      const text = `${b.name} · ${wires} wire${wires === 1 ? '' : 's'}`;
+      const w = text.length * 6.2 + 14;
+      return `<rect class="peek bundle-pill" x="${lx - w / 2}" y="${ly - 22}" width="${w}" height="16" rx="8"/>
+    <text class="bundle-label" x="${lx}" y="${ly - 10}">${esc(text)}</text>`;
+    })()}
+    ${handles}
+  </g>`;
+}
+
+// Where a wire goes into or out of a bundle; hollow when nothing continues there.
+function tapMarkup(doc, t, open, selected) {
+  const wire = byId(doc.wires, t.wireId);
+  const { point } = bundleSpot(byId(doc.bundles, t.bundleId), t.at);
+  return `<g class="tap${open ? ' open' : ''}${selected ? ' selected' : ''}" data-kind="tap" data-id="${t.id}">
+    <title>${esc(wire.name)}</title>
+    <circle cx="${point.x}" cy="${point.y}" r="${TAP_R}" stroke="${esc(wire.color)}" fill="${open ? '#fff' : esc(wire.color)}"/>
+  </g>`;
+}
+
+// Exploded view of a bundle (for its hover preview): one lane per wire it
+// carries, drawn along a straightened track from end A to end B.
+export function bundleDiagram(summary) {
+  const { lanes, length, cuts } = summary;
+  const left = 44;
+  const trackW = 400;
+  const top = 50;
+  const laneH = 48;
+  const n = Math.max(1, lanes.length);
+  const x = (at) => left + (length ? at / length : 0) * trackW;
+  const bottom = top + (n - 1) * laneH;
+  const parts = [`<rect class="track" x="${left - 10}" y="${top - 24}" width="${trackW + 20}" height="${bottom - top + 52}" rx="8"/>`];
+  parts.push(`<text class="track-end" x="${left - 16}" y="${(top + bottom) / 2 + 4}" text-anchor="end">A</text>`);
+  parts.push(`<text class="track-end" x="${left + trackW + 16}" y="${(top + bottom) / 2 + 4}">B</text>`);
+  for (const at of cuts) if (at > 0 && at < length) parts.push(`<line class="cut" x1="${x(at)}" y1="${top - 24}" x2="${x(at)}" y2="${bottom + 28}"/>`);
+  if (!lanes.length) parts.push(`<text class="lane-note" x="${left + trackW / 2}" y="${top + 4}" text-anchor="middle">No wires in this bundle yet.</text>`);
+  lanes.forEach((lane, i) => {
+    const y = top + i * laneH;
+    const color = esc(lane.wire.color);
+    parts.push(`<text class="lane-name" x="${x(lane.min) + 2}" y="${y - 8}" fill="${color}">${esc(lane.wire.name)}</text>`);
+    if (!lane.waiting) parts.push(`<line class="lane" x1="${x(lane.min)}" y1="${y}" x2="${x(lane.max)}" y2="${y}" stroke="${color}"/>`);
+    if (lane.wire.direction === 'directed') {
+      for (const run of lane.inner) {
+        if (run.from === run.to) continue;
+        const mx = (x(run.from) + x(run.to)) / 2;
+        parts.push(arrow({ x: mx + (run.to > run.from ? 5 : -5), y }, run.to > run.from ? 1 : -1, 0, lane.wire.color, 8));
+      }
+    }
+    for (const p of lane.points) {
+      const anchorText = p.at <= 0 ? 'start' : p.at >= length ? 'end' : 'middle';
+      const words = p.outside.map((o) => {
+        const names = o.names.map((m) => m.name).join(', ');
+        if (lane.wire.direction !== 'directed') return `↔ ${names}`;
+        return o.entering ? `from ${names}` : `to ${names}`;
+      });
+      const label = lane.waiting ? `${words.join('; ')} · not pulled out` : words.join('; ');
+      const unresolved = p.open || p.outside.some((o) => o.names.some((m) => m.unresolved));
+      parts.push(`<circle class="lane-tap" cx="${x(p.at)}" cy="${y}" r="5" stroke="${color}" fill="${p.open ? '#fff' : color}"/>`);
+      if (label) parts.push(`<text class="lane-note${unresolved ? ' unresolved' : ''}" x="${x(p.at)}" y="${y + 18}" text-anchor="${anchorText}">${esc(label)}</text>`);
+    }
+  });
+  return { markup: parts.join(''), width: left + trackW + 44, height: bottom + 44 };
 }
 
 // A text box: rich text wrapped inside a resizable box (text beyond it is clipped).
@@ -289,6 +431,9 @@ export function sheetBounds(doc, sheetId) {
   const rects = [];
   for (const p of doc.placements) if (p.sheetId === sheetId) rects.push(pxRect(p));
   for (const n of doc.notes) if (n.sheetId === sheetId) rects.push(pxRect(n));
+  for (const b of doc.bundles) {
+    if (b.sheetId === sheetId) for (const q of b.points) rects.push({ x: q.x * G - 10, y: q.y * G - 24, w: 20, h: 34 });
+  }
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) rects.push({ x: u.x * G, y: u.y * G, w: G, h: G });
   for (const v of doc.vias) {
     if (v.subsystemId !== sheetId) continue;
@@ -312,7 +457,14 @@ export function renderSheet(doc, { sheetId, parentName, selection, view, width, 
   const parts = [];
   parts.push(`<rect fill="url(#${patternId})" x="${left - G}" y="${top - G}" width="${width / view.k + 2 * G}" height="${height / view.k + 2 * G}"/>`);
   for (const p of doc.placements) if (p.sheetId === sheetId) parts.push(placementMarkup(doc, p, sel('placement', p.id)));
-  for (const s of doc.segments) if (s.sheetId === sheetId) parts.push(segmentMarkup(doc, s, sel('segment', s.id)));
+  for (const b of doc.bundles) if (b.sheetId === sheetId) parts.push(bundleMarkup(doc, b, sel('bundle', b.id)));
+  for (const s of doc.segments) if (s.sheetId === sheetId && !insideBundle(doc, s)) parts.push(segmentMarkup(doc, s, sel('segment', s.id)));
+  for (const t of doc.taps) {
+    const b = byId(doc.bundles, t.bundleId);
+    if (b.sheetId !== sheetId) continue;
+    const open = doc.segments.filter((s) => [s.from, s.to].some((ep) => ep.kind === 'tap' && ep.tapId === t.id)).length < 2;
+    parts.push(tapMarkup(doc, t, open, sel('tap', t.id)));
+  }
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) parts.push(unknownMarkup(u, sel('unknown', u.id)));
   for (const v of doc.vias) if (v.subsystemId === sheetId) parts.push(viaMarkup(doc, v, parentName, sel('via', v.id)));
   for (const n of doc.notes) if (n.sheetId === sheetId) parts.push(noteMarkup(n, sel('note', n.id)));
