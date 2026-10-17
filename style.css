@@ -163,7 +163,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .boundary { fill: none; stroke: #f1f5f9; stroke-width: 14; pointer-events: stroke; }
 .boundary-label { font-size: 10px; text-anchor: middle; fill: var(--muted); pointer-events: none; }
 
-/* Subsystem hover preview: grows from the box to fill the canvas (see preview.js). */
+/* Subsystem hover preview: grows from the box to 60% of the canvas (see preview.js). */
 #preview {
   position: absolute;
   z-index: 5;
@@ -188,3 +188,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 @media (prefers-reduced-motion: reduce) { #preview, #preview.closing { transition-duration: 0s; } }
 
 .ghost { fill: none; stroke: var(--muted); stroke-dasharray: 4 3; pointer-events: none; }
+.wire-ghost { pointer-events: none; }
+.wire-ghost .line { fill: none; stroke-width: 2.5; stroke-opacity: 0.85; }
+.wire-ghost .ghost-x { stroke: var(--ink); stroke-width: 2; stroke-opacity: 0.5; }
+.wire-ghost .ghost-port { fill: #fff; stroke-width: 2; }
+.wire-ghost .ghost-target { fill: none; stroke-width: 2; stroke-opacity: 0.5; rx: 3; }
+.marquee { fill: rgba(37, 99, 235, 0.08); stroke: #2563eb; stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; }
+#canvas.panning, #canvas[data-tool].panning { cursor: grab; }

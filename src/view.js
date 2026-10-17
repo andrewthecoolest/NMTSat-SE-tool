@@ -140,6 +140,70 @@ function segmentMarkup(doc, seg, selected) {
   </g>`;
 }
 
+// The wire being drawn: routed and colored like a real segment, from a drop
+// target (see targetAt in main.js) to another target or { kind: 'point', x, y }.
+function targetShape(doc, t) {
+  if (t.kind === 'module' || t.kind === 'unknown') return endShape(doc, t);
+  if (t.kind === 'port' || t.kind === 'via') return byId(doc.vias, t.viaId) ? endShape(doc, t) : null;
+  if (t.kind === 'subsystem') {
+    const p = byId(doc.placements, t.placementId);
+    return { point: portPoint(p, { portSide: t.side, portOffset: t.offset }), side: t.side, radius: PORT_R };
+  }
+  if (t.kind === 'newUnknown') return { rect: { x: t.x * G, y: t.y * G, w: G, h: G } };
+  if (t.kind === 'boundary') return { point: { x: t.x * G, y: t.y * G }, radius: 0 };
+  return { point: { x: t.x, y: t.y }, radius: 0 };
+}
+
+function ghostMark(doc, t, shape, color) {
+  if (t.kind === 'newUnknown') {
+    const { x, y } = shape.rect;
+    const m = 4;
+    return `<path class="ghost-x" d="M${x + m},${y + m} L${x + G - m},${y + G - m} M${x + G - m},${y + m} L${x + m},${y + G - m}"/>`;
+  }
+  if (t.kind === 'subsystem') return `<circle class="ghost-port" cx="${shape.point.x}" cy="${shape.point.y}" r="${PORT_R}" stroke="${esc(color)}"/>`;
+  if (shape.rect && t.kind !== 'point') {
+    const r = shape.rect;
+    return `<rect class="ghost-target" x="${r.x - 3}" y="${r.y - 3}" width="${r.w + 6}" height="${r.h + 6}" stroke="${esc(color)}"/>`;
+  }
+  return '';
+}
+
+export function wireGhost(doc, from, to, { color, directed }) {
+  const sa = targetShape(doc, from);
+  const sb = targetShape(doc, to);
+  if (!sa || !sb) return '';
+  const a = anchor(sa, centerOf(sb));
+  const b = anchor(sb, centerOf(sa));
+  const pts = route(a, b);
+  let head = '';
+  if (directed) {
+    let i = pts.length - 2;
+    while (i > 0 && pts[i].x === b.x && pts[i].y === b.y) i--;
+    head = arrow(b, b.x - pts[i].x, b.y - pts[i].y, color);
+  }
+  return `<g class="wire-ghost">
+    ${ghostMark(doc, from, sa, color)}${ghostMark(doc, to, sb, color)}
+    <path class="line" d="M${pts.map((p) => `${p.x},${p.y}`).join(' L')}" stroke="${esc(color)}"/>${head}
+  </g>`;
+}
+
+// Everything on a sheet that lies entirely inside a world rectangle (px), for
+// box selection. A segment counts when both of its ends do.
+export function itemsInRect(doc, sheetId, r) {
+  const inside = (b) => b.x >= r.x && b.y >= r.y && b.x + b.w <= r.x + r.w && b.y + b.h <= r.y + r.h;
+  const shapeInside = (s) => inside(s.rect || { x: s.point.x, y: s.point.y, w: 0, h: 0 });
+  const items = [];
+  for (const p of doc.placements) if (p.sheetId === sheetId && inside(pxRect(p))) items.push({ kind: 'placement', id: p.id });
+  for (const n of doc.notes) if (n.sheetId === sheetId && inside(pxRect(n))) items.push({ kind: 'note', id: n.id });
+  for (const u of doc.unknownLoads) {
+    if (u.sheetId === sheetId && inside({ x: u.x * G, y: u.y * G, w: G, h: G })) items.push({ kind: 'unknown', id: u.id });
+  }
+  for (const seg of doc.segments) {
+    if (seg.sheetId === sheetId && shapeInside(endShape(doc, seg.from)) && shapeInside(endShape(doc, seg.to))) items.push({ kind: 'segment', id: seg.id });
+  }
+  return items;
+}
+
 // ---- objects ----------------------------------------------------------------
 
 function portMarkup(doc, placement, via) {
@@ -241,7 +305,7 @@ export function sheetBounds(doc, sheetId) {
 // boundary: draw the sheet-boundary strip on subsystem sheets. patternId must be
 // unique per page (the hover preview renders a second sheet alongside the canvas).
 export function renderSheet(doc, { sheetId, parentName, selection, view, width, height, overlay = '', boundary: withBoundary = true, patternId = 'dots' }) {
-  const sel = (kind, id) => selection?.kind === kind && selection.id === id;
+  const sel = (kind, id) => (selection?.kind === kind && selection.id === id) || !!selection?.items?.some((x) => x.kind === kind && x.id === id);
   const left = -view.x / view.k;
   const top = -view.y / view.k;
 

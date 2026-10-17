@@ -1,7 +1,7 @@
 // App wiring: state, history, pointer/keyboard handling, toolbar.
 import { apply, byId, emptyDoc, upgrade, validate, wireByName } from './model.js';
 import { sheetName, sheetPath, status } from './derive.js';
-import { G, nearestSide, renderSheet } from './view.js';
+import { G, itemsInRect, nearestSide, renderSheet, wireGhost } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
 import { createPreview } from './preview.js';
@@ -25,10 +25,12 @@ let past = [];
 let future = [];
 let path = ['root'];       // sheet ids from root to the current sheet
 let tool = 'select';
-let selection = null;      // { kind: 'placement' | 'unknown' | 'segment' | 'via' | 'note', id }
+let selection = null;      // { kind: 'placement' | 'unknown' | 'segment' | 'via' | 'note', id }, or { kind: 'many', items: [...] }
 let subject = null;        // what the info view shows
 let preview = null;        // document shown instead of `doc` while dragging
 let drag = null;
+let wiring = null;         // a wire started by a click, following the pointer until the next click
+let spaceDown = false;     // Space held: dragging pans
 let lastClick = {};        // for double-click detection
 const views = {};          // sheet id -> { x, y, k }
 
@@ -111,7 +113,10 @@ function render(keepPanel = false) {
   // Leave sheets that no longer exist (e.g. after undo or delete).
   const gone = path.findIndex((id, i) => i > 0 && byId(doc.objects, id)?.type !== 'subsystem');
   if (gone > 0) path = path.slice(0, gone);
-  if (selection && !byId(doc[LISTS[selection.kind]], selection.id)) selection = null;
+  if (selection?.items) {
+    const items = selection.items.filter((x) => byId(doc[LISTS[x.kind]], x.id));
+    selection = items.length > 1 ? { kind: 'many', items } : items[0] ?? null;
+  } else if (selection && !byId(doc[LISTS[selection.kind]], selection.id)) selection = null;
 
   renderCanvas();
   if (!keepPanel) renderPanel(panelEl, panelApp());
@@ -139,8 +144,11 @@ function renderCanvas() {
     const r = boxFrom(drag.start, drag.end, tool === 'text' ? NOTE_BOX : undefined);
     overlay = `<rect class="ghost" x="${r.x * G}" y="${r.y * G}" width="${r.w * G}" height="${r.h * G}"/>`;
   }
-  if (drag?.type === 'wire') {
-    overlay = `<line class="ghost" x1="${drag.start.x}" y1="${drag.start.y}" x2="${drag.end.x}" y2="${drag.end.y}"/>`;
+  const w = drag?.type === 'wire' ? drag : wiring;
+  if (w) overlay = wireGhost(doc, w.from, ghostEnd(w), wireStyle(w));
+  if (drag?.type === 'marquee') {
+    const r = rectFrom(drag.start, drag.end);
+    overlay = `<rect class="marquee" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}"/>`;
   }
   svg.innerHTML = renderSheet(preview || doc, {
     sheetId: currentSheet(),
@@ -223,8 +231,33 @@ function deleteUnknown(id) {
   commitDeletion({ type: 'deleteUnknown', id }, (lost) => `Deleted the unknown load${andSegments(lost)}.`);
 }
 
+// Delete everything in a box selection as one undo step. Items already removed
+// along with an earlier one (e.g. a segment on a deleted module) are skipped.
+function deleteMany(items) {
+  const order = ['note', 'segment', 'unknown', 'placement'];
+  const sorted = items.filter((x) => order.includes(x.kind)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+  let next = doc;
+  for (const { kind, id } of sorted) {
+    if (!byId(next[LISTS[kind]], id)) continue;
+    let cmd = { type: { note: 'deleteNote', segment: 'deleteSegment', unknown: 'deleteUnknown' }[kind], id };
+    if (kind === 'placement') {
+      const p = byId(next.placements, id);
+      const last = next.placements.filter((x) => x.objectId === p.objectId).length === 1;
+      cmd = last ? { type: 'deleteObject', id: p.objectId } : { type: 'removePlacement', id };
+    }
+    const r = apply(next, cmd);
+    if (r.error) return toast(r.error);
+    next = r.doc;
+  }
+  const chosen = sorted.filter((x) => x.kind === 'segment').length;
+  const lost = Math.max(0, doc.segments.length - next.segments.length - chosen);
+  setDoc(next);
+  toast(`Deleted ${plural(sorted.length, 'item')}${andSegments(lost)}. Undo brings it back.`);
+}
+
 function deleteSelection() {
   if (!selection) return;
+  if (selection.kind === 'many') return deleteMany(selection.items);
   const { kind, id } = selection;
   if (kind === 'placement') removePlacement(id);
   if (kind === 'unknown') deleteUnknown(id);
@@ -338,6 +371,40 @@ function targetAt(el, pt) {
 
 const targetKey = (t) => t.placementId || t.unknownId || t.viaId || t.kind;
 
+// Where the wire being drawn ends: the thing under the pointer, or the pointer
+// itself while it is still over the starting point.
+function ghostEnd(w) {
+  const t = w.hover;
+  const pointer = { kind: 'point', x: w.end.x, y: w.end.y };
+  if (!t) return pointer;
+  if (t.kind === 'newUnknown') return w.from.kind === 'newUnknown' && w.from.x === t.x && w.from.y === t.y ? pointer : t;
+  return targetKey(t) === targetKey(w.from) ? pointer : t;
+}
+
+// Color and direction of the wire being drawn: an existing wire's when it starts
+// (or ends) at one of its vias, else the new wire's defaults.
+function wireStyle(w) {
+  const via = byId(doc.vias, w.from.viaId) || byId(doc.vias, w.hover?.viaId);
+  const wire = via && byId(doc.wires, via.wireId);
+  if (wire) return { color: wire.color, directed: wire.direction === 'directed' };
+  return { color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], directed: true };
+}
+
+async function finishWire(from, to) {
+  renderCanvas();
+  const via = byId(doc.vias, from.viaId) || byId(doc.vias, to.viaId);
+  const answer = await askWire(via ? byId(doc.wires, via.wireId).name : '');
+  if (!answer) return;
+  const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from, to, wire: answer });
+  if (r) {
+    selection = { kind: 'segment', id: r.id };
+    render();
+  }
+}
+
+// World rectangle (px) spanned by two points.
+const rectFrom = (a, b) => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) });
+
 function startSelect(el, pt) {
   const { kind, id } = el.dataset;
   const gx = pt.x / G;
@@ -422,12 +489,19 @@ svg.addEventListener('pointerdown', (e) => {
   svg.setPointerCapture(e.pointerId);
 
   const empty = !el || el.dataset.kind === 'boundary';
-  if (e.button === 1 || (tool === 'select' && empty)) {
-    if (e.button === 0) {
-      selection = null;
-      render();
-    }
+  if (e.button === 1 || spaceDown) {
     drag = { type: 'pan', sx: e.clientX, sy: e.clientY, view: { ...view() } };
+  } else if (wiring) {
+    // Second click of a click-started wire: finish it here, or cancel on its start.
+    const w = wiring;
+    wiring = null;
+    const to = targetAt(el, pt);
+    if (ghostEnd({ ...w, hover: to }).kind === 'point') renderCanvas();
+    else finishWire(w.from, to);
+  } else if (tool === 'select' && empty) {
+    selection = null;
+    render();
+    drag = { type: 'marquee', start: pt, end: pt };
   } else if (tool === 'select') {
     startSelect(el, pt);
   } else if (tool === 'module' || tool === 'subsystem' || tool === 'text') {
@@ -435,20 +509,28 @@ svg.addEventListener('pointerdown', (e) => {
   } else if (tool === 'unknown') {
     commit({ type: 'addUnknown', sheetId: currentSheet(), x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) });
   } else if (tool === 'wire') {
-    drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt };
+    drag = { type: 'wire', from: targetAt(el, pt), start: pt, end: pt, hover: null };
   }
 });
 
 svg.addEventListener('pointermove', (e) => {
+  const pt = toWorld(e);
   if (!drag) {
-    hoverPreview.hover(tool === 'select' && !e.buttons ? hoveredSubsystem(e) : null);
+    hoverPreview.hover(tool === 'select' && !e.buttons && !spaceDown ? hoveredSubsystem(e) : null);
+    if (wiring) {
+      wiring.end = pt;
+      wiring.hover = targetAt(elementAt(e), pt);
+      renderCanvas();
+    }
     return;
   }
-  const pt = toWorld(e);
   if (drag.type === 'pan') {
     Object.assign(view(), { x: drag.view.x + e.clientX - drag.sx, y: drag.view.y + e.clientY - drag.sy });
-  } else if (drag.type === 'box' || drag.type === 'wire') {
+  } else if (drag.type === 'box' || drag.type === 'marquee') {
     drag.end = pt;
+  } else if (drag.type === 'wire') {
+    drag.end = pt;
+    drag.hover = targetAt(elementAt(e), pt);
   } else {
     drag.cmd = dragCommand(drag, pt);
     preview = (drag.cmd && apply(doc, drag.cmd).doc) || null;
@@ -483,18 +565,20 @@ svg.addEventListener('pointerup', async (e) => {
       selection = { kind: 'placement', id: r.id };
       render();
     }
+  } else if (d.type === 'marquee') {
+    const items = itemsInRect(doc, currentSheet(), rectFrom(d.start, pt));
+    selection = items.length > 1 ? { kind: 'many', items } : items[0] ?? null;
+    render();
   } else if (d.type === 'wire') {
     const to = targetAt(elementAt(e), pt);
-    renderCanvas();
-    const sameSpot = Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < G;
-    if (targetKey(to) === targetKey(d.from) && (sameSpot || to.placementId || to.unknownId || to.viaId)) return;
-    const via = byId(doc.vias, d.from.viaId) || byId(doc.vias, to.viaId);
-    const answer = await askWire(via ? byId(doc.wires, via.wireId).name : '');
-    if (!answer) return;
-    const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from: d.from, to, wire: answer });
-    if (r) {
-      selection = { kind: 'segment', id: r.id };
-      render();
+    // A click (no real drag) starts a wire that follows the pointer until the next click.
+    if (Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < G / 2) {
+      wiring = { ...d, end: pt, hover: to };
+      renderCanvas();
+    } else if (ghostEnd({ ...d, hover: to }).kind === 'point') {
+      renderCanvas();
+    } else {
+      finishWire(d.from, to);
     }
   }
 });
@@ -526,6 +610,10 @@ window.addEventListener('resize', renderCanvas);
 
 function setTool(name) {
   tool = name;
+  if (wiring) {
+    wiring = null;
+    renderCanvas();
+  }
   svg.dataset.tool = name;
   for (const b of document.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
 }
@@ -545,8 +633,15 @@ document.addEventListener('keydown', (e) => {
     redo();
   } else if (e.metaKey || e.ctrlKey || e.altKey) {
     // leave other shortcuts to the browser
+  } else if (e.key === ' ') {
+    e.preventDefault();
+    spaceDown = true;
+    svg.classList.add('panning');
   } else if (TOOL_KEYS[key]) {
     setTool(TOOL_KEYS[key]);
+  } else if (e.key === 'Escape' && wiring) {
+    wiring = null; // cancel the wire being drawn, but stay in the Wire tool
+    renderCanvas();
   } else if (e.key === 'Escape') {
     setTool('select');
     selection = null;
@@ -558,6 +653,15 @@ document.addEventListener('keydown', (e) => {
     deleteSelection();
   }
 });
+
+const releaseSpace = () => {
+  spaceDown = false;
+  svg.classList.remove('panning');
+};
+document.addEventListener('keyup', (e) => {
+  if (e.key === ' ') releaseSpace();
+});
+window.addEventListener('blur', releaseSpace);
 
 for (const b of document.querySelectorAll('[data-tool]')) b.addEventListener('click', () => setTool(b.dataset.tool));
 document.getElementById('undo').addEventListener('click', undo);
