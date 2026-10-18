@@ -17,6 +17,7 @@
       <button data-tool="wire" title="Drag from one thing to another to draw a wire (W)">Wire</button>
       <button data-tool="bundle" title="Click corner points to lay out a bundle; double-click or Enter to finish (B)">Bundle</button>
       <button data-tool="text" title="Drag a text box, or click for a default size (T)">Text</button>
+      <button data-tool="line" title="Drag to draw a plain colored line, e.g. for a legend; not a wire (L)">Line</button>
     </div>
     <div class="group">
       <button id="undo" title="Undo (Ctrl/Cmd+Z)">Undo</button>
@@ -70,6 +71,16 @@
       <h2 id="pullTitle">Pull a wire out</h2>
       <label class="field"><span>Wire</span><input name="name" list="bundleWires" required autocomplete="off"></label>
       <p class="muted">Then click where it goes. It runs inside the bundle from where it already is.</p>
+      <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="lineDialog">
+    <form method="dialog">
+      <h2>Line</h2>
+      <label class="field"><span>Color</span><input name="color" type="color"></label>
+      <label class="field"><span>Caption</span><input name="label" autocomplete="off" placeholder="e.g. Power (28 V)"></label>
+      <p class="muted">A plain line for legends and notes; it isn't a wire.</p>
       <div class="buttons"><button value="ok">OK</button><button value="cancel" formnovalidate>Cancel</button></div>
     </form>
   </dialog>

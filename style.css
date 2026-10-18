@@ -41,6 +41,7 @@ main { position: relative; flex: 1; overflow: hidden; }
 #canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; user-select: none; }
 #canvas[data-tool="module"], #canvas[data-tool="subsystem"], #canvas[data-tool="unknown"], #canvas[data-tool="wire"], #canvas[data-tool="bundle"] { cursor: crosshair; }
 #canvas[data-tool="text"] { cursor: text; }
+#canvas[data-tool="line"] { cursor: crosshair; }
 
 #crumbs {
   position: absolute;
@@ -150,7 +151,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .wire.universal .wire-label { font-style: italic; }
 .junction circle { stroke: #fff; stroke-width: 1.5; }
 .wire-ghost .ghost-junction { stroke: #fff; stroke-width: 1.5; }
-.wire-label { font-size: 11px; text-anchor: middle; paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none; }
+.wire-label { font-size: 11px; text-anchor: middle; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
+#canvas[data-tool="select"] .wire-label { cursor: move; }
+#canvas[data-tool="select"] .bundle-pill { cursor: move; }
+/* Legend lines: plain colored lines with a caption (not wires). */
+.legend-line .hit { stroke: transparent; stroke-width: 12; }
+.legend-line .stroke { stroke-width: 3; stroke-linecap: round; pointer-events: none; }
+.legend-line.selected .stroke { stroke-width: 5; }
+.legend-label { font-size: 12px; fill: var(--ink); paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none; }
 
 .unknown rect { fill: transparent; }
 .unknown path { stroke: var(--ink); stroke-width: 2; }

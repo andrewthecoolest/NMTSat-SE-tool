@@ -19,6 +19,7 @@ const toastEl = document.getElementById('toast');
 const objectDialog = document.getElementById('objectDialog');
 const wireDialog = document.getElementById('wireDialog');
 const pullDialog = document.getElementById('pullDialog');
+const lineDialog = document.getElementById('lineDialog');
 const noteDialog = document.getElementById('noteDialog');
 const noteEditorEl = document.getElementById('noteEditor');
 
@@ -130,7 +131,7 @@ function replaceDoc(next, message) {
 
 // ---- rendering --------------------------------------------------------------
 
-const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias', note: 'notes', bundle: 'bundles', tap: 'taps' };
+const LISTS = { placement: 'placements', unknown: 'unknownLoads', segment: 'segments', via: 'vias', note: 'notes', bundle: 'bundles', tap: 'taps', line: 'lines' };
 
 function render(keepPanel = false) {
   // Leave sheets that no longer exist (e.g. after undo or delete).
@@ -169,6 +170,10 @@ function renderCanvas() {
   }
   const w = drag?.type === 'wire' ? drag : wiring;
   if (w) overlay = wireGhost(doc, w.from, ghostEnd(w), { ...wireStyle(w), sheetId: currentSheet() });
+  if (drag?.type === 'lineDraw') {
+    const [a, b] = [gridPoint(drag.start), gridPoint(drag.end)];
+    overlay = `<line class="ghost" x1="${a.x * G}" y1="${a.y * G}" x2="${b.x * G}" y2="${b.y * G}"/>`;
+  }
   if (bundling) {
     const pts = [...bundling.points, orthoFrom(bundling.points[bundling.points.length - 1], bundling.cursor)];
     overlay = `<path class="bundle-draft" d="M${pts.map((q) => `${q.x * G},${q.y * G}`).join(' L')}"/>`;
@@ -261,12 +266,12 @@ function deleteUnknown(id) {
 // Delete everything in a box selection as one undo step. Items already removed
 // along with an earlier one (e.g. a segment on a deleted module) are skipped.
 function deleteMany(items) {
-  const order = ['note', 'segment', 'tap', 'unknown', 'bundle', 'placement'];
+  const order = ['note', 'line', 'segment', 'tap', 'unknown', 'bundle', 'placement'];
   const sorted = items.filter((x) => order.includes(x.kind)).sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   let next = doc;
   for (const { kind, id } of sorted) {
     if (!byId(next[LISTS[kind]], id)) continue;
-    let cmd = { type: { note: 'deleteNote', segment: 'deleteSegment', tap: 'deleteTap', unknown: 'deleteUnknown', bundle: 'deleteBundle' }[kind], id };
+    let cmd = { type: { note: 'deleteNote', line: 'deleteLine', segment: 'deleteSegment', tap: 'deleteTap', unknown: 'deleteUnknown', bundle: 'deleteBundle' }[kind], id };
     if (kind === 'placement') {
       const p = byId(next.placements, id);
       const last = next.placements.filter((x) => x.objectId === p.objectId).length === 1;
@@ -300,6 +305,7 @@ function deleteSelection() {
   if (kind === 'unknown') deleteUnknown(id);
   if (kind === 'segment') deleteSegment(id);
   if (kind === 'note') commit({ type: 'deleteNote', id });
+  if (kind === 'line') commit({ type: 'deleteLine', id });
   if (kind === 'bundle') deleteBundle(id);
   if (kind === 'tap') deleteTap(id);
   if (kind === 'via') toast('Vias follow their segments. Delete a segment instead.');
@@ -358,6 +364,18 @@ function noteRows(text, w) {
   return Math.ceil(px / G);
 }
 
+// Ask for a legend line's color and caption; an existing line is edited.
+async function askLine(line, ends) {
+  const answer = await ask(lineDialog, { color: line?.color ?? '#dc2626', label: line?.label ?? '' });
+  if (!answer) return renderCanvas();
+  if (line) return commit({ type: 'editLine', id: line.id, color: answer.color, label: answer.label });
+  const r = commit({ type: 'addLine', sheetId: currentSheet(), ...ends, color: answer.color, label: answer.label });
+  if (r) {
+    selection = { kind: 'line', id: r.id };
+    render();
+  }
+}
+
 // Ask for a text box's text; an existing box is edited (and deleted if cleared).
 // The box grows taller if the text doesn't fit; it never shrinks on its own.
 async function askNote(note, box) {
@@ -392,6 +410,51 @@ function elementAt(e) {
   return el && svg.contains(el) ? el : null;
 }
 
+// What a dragged wire end would attach to if dropped here, looking past the
+// thing being dragged (its own segment, its unknown load, or anything new in
+// the live preview). Empty space leaves the end floating at a new unknown load.
+function dropTarget(e, pt, segmentId, unknownId) {
+  for (const node of document.elementsFromPoint(e.clientX, e.clientY)) {
+    const el = node.closest?.('[data-kind]');
+    if (!el || !svg.contains(el)) continue;
+    const { kind, id } = el.dataset;
+    if (kind === 'segment' && id === segmentId) continue;
+    if (kind === 'unknown' && (id === unknownId || !byId(doc.unknownLoads, id))) continue;
+    if (kind === 'boundary' || kind === 'note' || kind === 'label') continue;
+    return targetAt(el, pt);
+  }
+  return { kind: 'newUnknown', x: Math.floor(pt.x / G), y: Math.floor(pt.y / G) };
+}
+
+// Where a dragged unknown load would attach its wire, if dropped on something.
+function unknownDropTarget(d, e, pt) {
+  const seg = doc.segments.find((s) => [s.from, s.to].some((ep) => ep.kind === 'unknown' && ep.unknownId === d.id));
+  if (!seg) return null;
+  const t = dropTarget(e, pt, seg.id, d.id);
+  return t.kind === 'newUnknown' ? null : t;
+}
+
+// Is pt on (or within reach of) placement p's box?
+function nearBox(p, pt, reach = 12) {
+  const [x, y, w, h] = [p.x * G, p.y * G, p.w * G, p.h * G];
+  return pt.x >= x - reach && pt.x <= x + w + reach && pt.y >= y - reach && pt.y <= y + h + reach;
+}
+
+// The leg of a segment's drawn route nearest pt: 'x' for a vertical leg (it
+// moves sideways), 'y' for a horizontal one.
+function legAxis(seg, pt) {
+  const pts = segmentRoute(doc, seg) ?? [];
+  let best = { d: Infinity, axis: 'x' };
+  for (let i = 1; i < pts.length; i++) {
+    const [p, q] = [pts[i - 1], pts[i]];
+    if (p.x === q.x && p.y === q.y) continue;
+    const c = nearestOnRoute([p, q], pt);
+    const d = Math.hypot(c.x - pt.x, c.y - pt.y);
+    if (d < best.d) best = { d, axis: p.x === q.x ? 'x' : 'y' };
+  }
+  return best.axis;
+}
+
 // Grid rectangle spanned by a drag; a plain click gives a default-sized box.
 function boxFrom(a, b, fallback = { w: 6, h: 3 }) {
   const x = Math.round(Math.min(a.x, b.x) / G);
@@ -403,6 +466,8 @@ function boxFrom(a, b, fallback = { w: 6, h: 3 }) {
 
 // What a wire end dropped on `el` at world point `pt` refers to.
 function targetAt(el, pt) {
+  // A label stands for what it labels (a wire's line or a bundle).
+  if (el?.dataset.kind === 'label') return targetAt(el.parentElement?.closest('[data-kind]'), pt);
   const kind = el?.dataset.kind;
   const id = el?.dataset.id;
   if (kind === 'placement' || kind === 'resize') {
@@ -414,7 +479,11 @@ function targetAt(el, pt) {
   if (kind === 'unknown') return { kind: 'unknown', unknownId: id };
   if (kind === 'via') return { kind: 'via', viaId: id };
   if (kind === 'boundary') return { kind: 'boundary', x: Math.round(pt.x / G), y: Math.round(pt.y / G) };
-  if (kind === 'tap') return { kind: 'tap', tapId: id };
+  if (kind === 'tap') {
+    // A wire's dot on a bundle: more wires can go in or come out at that same point.
+    const t = byId(doc.taps, id);
+    return { kind: 'bundle', bundleId: t.bundleId, at: t.at, prefer: t.wireId };
+  }
   if (kind === 'junction') return { kind: 'junction', junctionId: id };
   if (kind === 'segment') {
     // On a wire's line: branch from (or join) it at the nearest point on it.
@@ -500,7 +569,7 @@ function openWire(segmentId) {
 }
 
 // Ask which wire to pull out of a bundle (null if cancelled, or if it carries none).
-async function askPull(bundleId) {
+async function askPull(bundleId, preferWireId) {
   const b = byId(doc.bundles, bundleId);
   // Any wire in the bundle, including parts of it across subsystem edges.
   const inside = bundleSummary(doc, b.id).lanes.map((l) => l.wire);
@@ -510,7 +579,8 @@ async function askPull(bundleId) {
   }
   document.getElementById('pullTitle').textContent = `Pull a wire out of ${b.name}`;
   document.getElementById('bundleWires').replaceChildren(...inside.map((w) => h('option', { value: w.name })));
-  const answer = await ask(pullDialog, { name: inside.length === 1 ? inside[0].name : '' });
+  const prefer = inside.find((w) => w.id === preferWireId);
+  const answer = await ask(pullDialog, { name: prefer?.name ?? (inside.length === 1 ? inside[0].name : '') });
   return answer?.name.trim() || null;
 }
 
@@ -601,6 +671,29 @@ function startSelect(el, pt) {
     if (!double) drag = { type: 'moveNote', id, dx: gx - n.x, dy: gy - n.y };
     render();
     if (double) askNote(n);
+  } else if (kind === 'label') {
+    // Drag a wire's or bundle's label somewhere easier to read; a click on a
+    // wire's label opens its info.
+    const { of } = el.dataset;
+    const item = of === 'bundle' ? byId(doc.bundles, id) : byId(doc.segments, id);
+    selection = { kind: of === 'bundle' ? 'bundle' : 'segment', id };
+    drag = { type: 'moveLabel', of, id, sx: gx, sy: gy, dx0: item?.label?.dx ?? 0, dy0: item?.label?.dy ?? 0, start: pt };
+    render();
+  } else if (kind === 'line') {
+    const l = byId(doc.lines, id);
+    selection = { kind, id };
+    if (double) askLine(l);
+    else drag = { type: 'moveLine', id, sx: gx, sy: gy };
+    render();
+  } else if (kind === 'lineEnd') {
+    drag = { type: 'moveLineEnd', id, end: Number(el.dataset.index) };
+  } else if (kind === 'junction') {
+    selection = null;
+    if (double) {
+      const seg = doc.segments.find((s) => [s.from, s.to].some((ep) => ep.kind === 'junction' && ep.junctionId === id));
+      if (seg) subject = { kind: 'wire', id: seg.wireId };
+    } else drag = { type: 'moveJunction', id };
+    render();
   } else if (kind === 'segment') {
     // Pressing near an end on a module or subsystem drags that end around the box;
     // otherwise a click opens the wire's info when released.
@@ -609,8 +702,9 @@ function startSelect(el, pt) {
     const near = ['from', 'to'].find((end) => Math.hypot(ends[end].x - pt.x, ends[end].y - pt.y) < 14 && ['module', 'port'].includes(seg[end].kind));
     selection = { kind, id };
     if (near && seg[near].kind === 'module') drag = { type: 'segEnd', id, end: near, placementId: seg[near].placementId };
-    else if (near) drag = { type: 'movePort', id: seg[near].viaId, placementId: seg[near].placementId, segmentId: id };
-    else drag = { type: 'segClick', id };
+    else if (near) drag = { type: 'movePort', id: seg[near].viaId, placementId: seg[near].placementId, segmentId: id, end: near };
+    // Dragging elsewhere on the line moves that leg; a click opens the wire's info.
+    else drag = { type: 'segClick', id, axis: legAxis(seg, pt), start: pt };
     render();
   } else if (kind === 'bundle') {
     // Click selects (and drags) a bundle; double-click opens its info.
@@ -629,7 +723,7 @@ function startSelect(el, pt) {
   }
 }
 
-function dragCommand(d, pt) {
+function dragCommand(d, pt, e) {
   const gx = pt.x / G;
   const gy = pt.y / G;
   if (d.type === 'move') return { type: 'movePlacement', id: d.id, x: gx - d.dx, y: gy - d.dy };
@@ -644,7 +738,29 @@ function dragCommand(d, pt) {
     return { type: 'moveNote', id: d.id, w: gx - n.x, h: gy - n.y };
   }
   if (d.type === 'moveVia') return { type: 'moveVia', id: d.id, x: gx, y: gy };
-  if (d.type === 'segEnd') return { type: 'setSegmentEnd', id: d.id, end: d.end, ...nearestSide(byId(doc.placements, d.placementId), pt) };
+  // A wire end slides around its box while near it; dragged away, it floats and
+  // reattaches to whatever it's dropped on.
+  if (d.type === 'segEnd' || (d.type === 'movePort' && d.segmentId)) {
+    const p = byId(doc.placements, d.placementId);
+    const segId = d.segmentId || d.id;
+    if (nearBox(p, pt)) {
+      return d.type === 'segEnd'
+        ? { type: 'setSegmentEnd', id: d.id, end: d.end, ...nearestSide(p, pt) }
+        : { type: 'movePort', id: d.id, ...nearestSide(p, pt) };
+    }
+    return e && { type: 'reconnectEnd', id: segId, end: d.end, target: dropTarget(e, pt, segId) };
+  }
+  if (d.type === 'segClick') {
+    if (Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < 5) return null;
+    return { type: 'setSegmentBend', id: d.id, axis: d.axis, at: d.axis === 'x' ? gx : gy };
+  }
+  if (d.type === 'moveLabel') {
+    if (Math.hypot(pt.x - d.start.x, pt.y - d.start.y) < 3) return null;
+    return { type: 'moveLabel', of: d.of, id: d.id, dx: d.dx0 + gx - d.sx, dy: d.dy0 + gy - d.sy };
+  }
+  if (d.type === 'moveLine') return { type: 'moveLine', id: d.id, dx: Math.round(gx - d.sx), dy: Math.round(gy - d.sy) };
+  if (d.type === 'moveLineEnd') return { type: 'moveLineEnd', id: d.id, end: d.end, x: Math.round(gx), y: Math.round(gy) };
+  if (d.type === 'moveJunction') return { type: 'moveJunction', id: d.id, x: gx, y: gy };
   if (d.type === 'moveTap') {
     const t = byId(doc.taps, d.id);
     return { type: 'moveTap', id: d.id, at: project(byId(doc.bundles, t.bundleId).points, gx, gy) };
@@ -690,6 +806,8 @@ svg.addEventListener('pointerdown', (e) => {
     drag = { type: 'marquee', start: pt, end: pt };
   } else if (tool === 'select') {
     startSelect(el, pt);
+  } else if (tool === 'line') {
+    drag = { type: 'lineDraw', start: pt, end: pt };
   } else if (tool === 'module' || tool === 'subsystem' || tool === 'text') {
     drag = { type: 'box', start: pt, end: pt };
   } else if (tool === 'unknown') {
@@ -748,13 +866,13 @@ svg.addEventListener('pointermove', (e) => {
   }
   if (drag.type === 'pan') {
     Object.assign(view(), { x: drag.view.x + e.clientX - drag.sx, y: drag.view.y + e.clientY - drag.sy });
-  } else if (drag.type === 'box' || drag.type === 'marquee') {
+  } else if (drag.type === 'box' || drag.type === 'marquee' || drag.type === 'lineDraw') {
     drag.end = pt;
   } else if (drag.type === 'wire') {
     drag.end = pt;
     drag.hover = targetAt(elementAt(e), pt);
   } else {
-    drag.cmd = dragCommand(drag, pt);
+    drag.cmd = dragCommand(drag, pt, e) ?? drag.cmd;
     preview = (drag.cmd && apply(doc, drag.cmd).doc) || null;
   }
   renderCanvas();
@@ -770,17 +888,29 @@ svg.addEventListener('pointerup', async (e) => {
     const box = boxFrom(d.start, pt, NOTE_BOX);
     renderCanvas();
     askNote(null, box);
+  } else if (d.type === 'moveUnknown' && d.cmd && unknownDropTarget(d, e, pt)) {
+    // An unknown load (a floating wire end) dropped onto something attaches its wire there.
+    preview = null;
+    const seg = doc.segments.find((s) => [s.from, s.to].some((ep) => ep.kind === 'unknown' && ep.unknownId === d.id));
+    const end = seg.from.kind === 'unknown' && seg.from.unknownId === d.id ? 'from' : 'to';
+    lastClick = {};
+    commit({ type: 'reconnectEnd', id: seg.id, end, target: unknownDropTarget(d, e, pt) });
   } else if (d.cmd) {
     const moved = preview && JSON.stringify(preview) !== JSON.stringify(doc);
     preview = null;
     if (moved) {
       lastClick = {}; // a press that became a drag doesn't count toward a double-click
       commit(d.cmd);
-    } else if (d.type === 'segEnd' || d.segmentId) {
+    } else if (d.type === 'segEnd' || d.type === 'segClick' || d.segmentId || (d.type === 'moveLabel' && d.of === 'segment')) {
       openWire(d.segmentId || d.id);
     } else renderCanvas();
-  } else if (d.type === 'segClick' || d.type === 'segEnd' || d.segmentId) {
+  } else if (d.type === 'segClick' || d.type === 'segEnd' || d.segmentId || (d.type === 'moveLabel' && d.of === 'segment')) {
     openWire(d.segmentId || d.id);
+  } else if (d.type === 'moveLabel') {
+    render();
+  } else if (d.type === 'lineDraw') {
+    const [a, b] = [gridPoint(d.start), gridPoint(pt)];
+    askLine(null, { x1: a.x, y1: a.y, x2: b.x, y2: b.y });
   } else if (d.type === 'box') {
     const box = boxFrom(d.start, pt);
     const objectType = tool;
@@ -808,7 +938,7 @@ svg.addEventListener('pointerup', async (e) => {
     if (d.from.kind === 'bundle') {
       renderCanvas();
       if (!click && ghostEnd({ ...d, hover: to }).kind === 'point') return;
-      const pull = await askPull(d.from.bundleId);
+      const pull = await askPull(d.from.bundleId, d.from.prefer);
       if (!pull) return;
       d.from = { ...d.from, pull };
     }
@@ -860,7 +990,7 @@ function setTool(name) {
   for (const b of document.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', String(b.dataset.tool === name));
 }
 
-const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire', b: 'bundle', t: 'text' };
+const TOOL_KEYS = { v: 'select', m: 'module', s: 'subsystem', u: 'unknown', w: 'wire', b: 'bundle', t: 'text', l: 'line' };
 
 document.addEventListener('keydown', (e) => {
   hoverPreview.hide();

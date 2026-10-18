@@ -4,20 +4,23 @@ import { isRich, normalize, plainText, runsOf } from './richtext.js';
 import { boxPort, cleanPoints, isOrthogonal, movePoint, nearestBoxSide, pathLength, plugInto, pointAt } from './bundles.js';
 
 export const SCHEMA_VERSION = 1;
+const HEX = /^#[0-9a-f]{6}$/i;
+export const DEFAULT_BUNDLE_COLOR = '#475569';
+const DEFAULT_LINE_COLOR = '#dc2626';
 export const DEFAULT_OBJECT_COLOR = '#334155';
 const DEFAULT_WIRE_COLOR = '#2563eb';
 const SIDES = ['top', 'right', 'bottom', 'left'];
 const PORT_SPREAD = [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6];
 
 export function emptyDoc() {
-  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [], crossings: [], junctions: [] };
+  return { schemaVersion: SCHEMA_VERSION, objects: [], placements: [], unknownLoads: [], wires: [], segments: [], vias: [], notes: [], bundles: [], taps: [], crossings: [], junctions: [], lines: [] };
 }
 
 // Older documents: no notes, bundles or taps lists, or notes without a size (they
 // used to size themselves to their text: about 8px per character and 18px per line).
 export function upgrade(data) {
   if (!data || typeof data !== 'object') return data;
-  for (const k of ['notes', 'bundles', 'taps', 'crossings', 'junctions']) if (!(k in data)) data[k] = [];
+  for (const k of ['notes', 'bundles', 'taps', 'crossings', 'junctions', 'lines']) if (!(k in data)) data[k] = [];
   if (!Array.isArray(data.notes)) return data;
   for (const n of data.notes) {
     if (!n || typeof n !== 'object' || ('w' in n && 'h' in n)) continue;
@@ -260,7 +263,7 @@ export function validate(doc) {
 
 function check(doc) {
   if (!doc || doc.schemaVersion !== SCHEMA_VERSION) return [`Unsupported schemaVersion (expected ${SCHEMA_VERSION}).`];
-  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps', 'crossings', 'junctions'];
+  const lists = ['objects', 'placements', 'unknownLoads', 'wires', 'segments', 'vias', 'notes', 'bundles', 'taps', 'crossings', 'junctions', 'lines'];
   for (const k of lists) if (!Array.isArray(doc[k])) return [`Missing "${k}" list.`];
 
   const errors = [];
@@ -304,11 +307,16 @@ function check(doc) {
   for (const j of doc.junctions) {
     if (!sheetOk(j.sheetId) || !finite(j.x, j.y)) errors.push('A wire branch point is on a missing sheet.');
   }
+  const offsetOk = (o) => o === undefined || (Number.isFinite(o?.dx) && Number.isFinite(o?.dy));
+  for (const l of doc.lines) {
+    if (!sheetOk(l.sheetId) || !finite(l.x1, l.y1, l.x2, l.y2) || !HEX.test(l.color) || typeof l.label !== 'string') errors.push('A legend line is invalid.');
+  }
   for (const b of doc.bundles) {
     const pointsOk = Array.isArray(b.points) && b.points.length >= 2 && b.points.every((q) => Number.isInteger(q?.x) && Number.isInteger(q?.y));
     if (typeof b.name !== 'string' || !b.name.trim() || !isRich(b.description)) errors.push('A bundle has no name or an invalid description.');
     else if (!sheetOk(b.sheetId)) errors.push(`${b.name} is on a missing sheet.`);
     else if (!pointsOk || !isOrthogonal(b.points) || !pathLength(b.points)) errors.push(`${b.name} needs a path of straight horizontal and vertical legs.`);
+    else if ((b.color !== undefined && !HEX.test(b.color)) || !offsetOk(b.label)) errors.push(`${b.name} has an invalid color or label position.`);
   }
   const usedEnds = new Set();
   for (const c of doc.crossings) {
@@ -362,6 +370,8 @@ function check(doc) {
   for (const s of doc.segments) {
     const w = byId(doc.wires, s.wireId);
     if (!w) { errors.push('A segment refers to a missing wire.'); continue; }
+    if (s.bend !== undefined && !(['x', 'y'].includes(s.bend?.axis) && Number.isFinite(s.bend.at))) errors.push(`${w.name} has a segment with an invalid shape.`);
+    if (s.label !== undefined && !(Number.isFinite(s.label?.dx) && Number.isFinite(s.label?.dy))) errors.push(`${w.name} has a label in an invalid spot.`);
     if (!sheetOk(s.sheetId)) { errors.push(`A ${w.name} segment is on a missing sheet.`); continue; }
     for (const ep of [s.from, s.to]) {
       const problem = endpointProblem(doc, s, ep);
@@ -659,6 +669,7 @@ function resolveTarget(doc, sheetId, t, role, wire) {
       const point = { kind: 'junction', junctionId: j.id };
       doc.segments.push({ id: newId(), wireId: wire.id, sheetId, from: point, to: seg.to });
       seg.to = point;
+      delete seg.bend;
       return { ...point, branched: true };
     }
     case 'junction': {
@@ -703,6 +714,7 @@ function sweep(doc) {
     doc.vias = doc.vias.filter((v) => !v.crossingId || byId(doc.crossings, v.crossingId));
     doc.taps = doc.taps.filter((t) => byId(doc.bundles, t.bundleId));
     doc.junctions = doc.junctions.filter((j) => sheetOk(j.sheetId));
+    doc.lines = doc.lines.filter((l) => sheetOk(l.sheetId));
     const exists = (ep) => {
       if (ep.kind === 'junction') return !!byId(doc.junctions, ep.junctionId);
       if (ep.kind === 'module') return !!byId(doc.placements, ep.placementId);
@@ -1091,15 +1103,62 @@ const commands = {
     for (const t of doc.taps) if (t.bundleId === b.id) t.at = Math.min(t.at, length);
   },
 
-  // Name and description belong to the whole bundle, across subsystem edges.
-  editBundle(doc, { id, name, description }) {
+  // Name, color and description belong to the whole bundle, across subsystem edges.
+  editBundle(doc, { id, name, description, color }) {
     get(doc.bundles, id);
     if (name !== undefined && !String(name).trim()) fail('Names cannot be empty.');
+    if (color !== undefined && !HEX.test(color)) fail('Unknown color.');
     const clean = description === undefined ? undefined : cleanRich(description);
     for (const { bundle } of bundleChain(doc, id).items) {
       if (name !== undefined) bundle.name = String(name).trim();
       if (clean !== undefined) bundle.description = clean;
+      if (color !== undefined) bundle.color = color.toLowerCase();
     }
+  },
+
+  // Move a wire segment's or bundle's label away from where it would sit (grid units).
+  moveLabel(doc, { of, id, dx, dy }) {
+    const item = get(of === 'bundle' ? doc.bundles : doc.segments, id);
+    const round = (n) => Math.round(Number(n) * 4) / 4;
+    if (!round(dx) && !round(dy)) delete item.label;
+    else item.label = { dx: round(dx), dy: round(dy) };
+  },
+
+  // Legend lines: plain colored lines with a caption, not wires (no name,
+  // connections or properties).
+  addLine(doc, { sheetId, x1, y1, x2, y2, color = DEFAULT_LINE_COLOR, label = '' }) {
+    checkSheet(doc, sheetId);
+    if (!HEX.test(color)) fail('Unknown color.');
+    const l = { id: newId(), sheetId, x1: Math.round(x1), y1: Math.round(y1), x2: Math.round(x2), y2: Math.round(y2), color: color.toLowerCase(), label: String(label) };
+    if (l.x1 === l.x2 && l.y1 === l.y2) l.x2 += 4;
+    doc.lines.push(l);
+    return { id: l.id };
+  },
+
+  moveLine(doc, { id, dx, dy }) {
+    const l = get(doc.lines, id);
+    Object.assign(l, { x1: l.x1 + Math.round(dx), y1: l.y1 + Math.round(dy), x2: l.x2 + Math.round(dx), y2: l.y2 + Math.round(dy) });
+  },
+
+  moveLineEnd(doc, { id, end, x, y }) {
+    const l = get(doc.lines, id);
+    if (end === 1) Object.assign(l, { x2: Math.round(x), y2: Math.round(y) });
+    else Object.assign(l, { x1: Math.round(x), y1: Math.round(y) });
+    if (l.x1 === l.x2 && l.y1 === l.y2) fail('A line needs two different ends.');
+  },
+
+  editLine(doc, { id, color, label }) {
+    const l = get(doc.lines, id);
+    if (color !== undefined) {
+      if (!HEX.test(color)) fail('Unknown color.');
+      l.color = color.toLowerCase();
+    }
+    if (label !== undefined) l.label = String(label);
+  },
+
+  deleteLine(doc, { id }) {
+    get(doc.lines, id);
+    doc.lines = doc.lines.filter((l) => l.id !== id);
   },
 
   // Deleting a bundle dissolves it: each wire that went through is reconnected
@@ -1140,6 +1199,45 @@ const commands = {
     doc.segments = doc.segments.filter((s) => !touchesTap(s, id));
     doc.taps = doc.taps.filter((t) => t.id !== id);
     prune(doc, roots);
+  },
+
+  // Reattach one end of a segment somewhere else on its sheet (a box, bundle,
+  // via, a wire's line...), or leave it floating at a new unknown load. An
+  // unknown load left with nothing attached goes.
+  reconnectEnd(doc, { id, end, target }) {
+    const seg = get(doc.segments, id);
+    const side = end === 'to' ? 'to' : 'from';
+    const old = seg[side];
+    if (target?.kind === 'newUnknown' && old.kind === 'unknown') {
+      Object.assign(get(doc.unknownLoads, old.unknownId), { x: Math.round(target.x), y: Math.round(target.y) });
+      return;
+    }
+    const wire = get(doc.wires, seg.wireId);
+    // On a bundle this end goes in at that point; elsewhere it keeps its direction.
+    const ep = resolveTarget(doc, seg.sheetId, target, target?.kind === 'bundle' ? 'to' : side, wire);
+    delete ep.branched;
+    delete ep.pulledOut;
+    const segNow = byId(doc.segments, id); // a branch target may have split segments
+    segNow[side] = ep;
+    delete segNow.bend;
+    if (old.kind === 'unknown' && !doc.segments.some((s) => touchesUnknown(s, old.unknownId))) {
+      doc.unknownLoads = doc.unknownLoads.filter((u) => u.id !== old.unknownId);
+    }
+    doc.vias = doc.vias.filter((v) => doc.segments.some((s) => touchesVia(s, v.id)));
+    doc.taps = doc.taps.filter((t) => doc.segments.some((s) => touchesTap(s, t.id)));
+  },
+
+  // Shape a segment by hand: run its middle at x = at (axis 'x', a vertical leg)
+  // or y = at (axis 'y', a horizontal leg), in grid units. No axis: route it automatically.
+  setSegmentBend(doc, { id, axis, at }) {
+    const seg = get(doc.segments, id);
+    if (!axis) delete seg.bend;
+    else if (axis === 'x' || axis === 'y') seg.bend = { axis, at: Math.round(Number(at) * 2) / 2 };
+    else fail('Unknown direction.');
+  },
+
+  moveJunction(doc, { id, x, y }) {
+    Object.assign(get(doc.junctions, id), { x: Math.round(x * 2) / 2, y: Math.round(y * 2) / 2 });
   },
 
   // Move where a segment meets a module: a side and how far along it (0..1).

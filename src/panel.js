@@ -188,7 +188,9 @@ function wirePage(app) {
     section('ENDPOINTS', list(summary.endpoints.map((n) => h('li', { class: n.unresolved ? 'unresolved' : '' }, n.name, n.unresolved ? ' (unresolved)' : '')))),
     section('APPEARS ON', sheetLinks(app, summary.sheets)),
     subject.segmentId && byId(doc.segments, subject.segmentId) &&
-      h('footer', {}, h('button', { class: 'danger', onclick: () => app.deleteSegment(subject.segmentId) }, 'Delete segment')),
+      h('footer', {},
+        byId(doc.segments, subject.segmentId).bend && h('button', { onclick: () => app.commit({ type: 'setSegmentBend', id: subject.segmentId }) }, 'Auto-route this segment'),
+        h('button', { class: 'danger', onclick: () => app.deleteSegment(subject.segmentId) }, 'Delete segment')),
   ];
 }
 
@@ -218,9 +220,11 @@ function bundlePage(app) {
   const summary = bundleSummary(doc, b.id);
   return [
     header(app, `${b.name}(bundle)`),
-    section('NAME', textInput(b.name, (e) => {
-      if (save(app, e, { type: 'editBundle', id: b.id, name: e.target.value })) e.target.closest('.page').querySelector('.title').textContent = `${e.target.value.trim()}(bundle)`;
-    }, { class: 'name' })),
+    section('NAME', h('div', { class: 'row' },
+      textInput(b.name, (e) => {
+        if (save(app, e, { type: 'editBundle', id: b.id, name: e.target.value })) e.target.closest('.page').querySelector('.title').textContent = `${e.target.value.trim()}(bundle)`;
+      }, { class: 'name' }),
+      colorInput(b.color ?? '#475569', (e) => save(app, e, { type: 'editBundle', id: b.id, color: e.target.value })))),
     section('DESCRIPTION', descriptionInput(app, b.description, (description) => ({ type: 'editBundle', id: b.id, description }))),
     section('SECTIONS', list(bundleSectionLines(summary).map((x) => h('li', {}, x.text)))),
     section('WIRES', list(bundleWireLines(summary).map((x) => h('li', { class: x.unresolved ? 'unresolved' : '' }, swatch(x.wire.color), `${x.wire.name}: ${x.text}`)), 'No wires yet. Draw a wire onto the bundle to put it in.')),

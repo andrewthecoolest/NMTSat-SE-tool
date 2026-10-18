@@ -1,5 +1,5 @@
 // SVG rendering of one sheet. Pure: returns markup for the current state.
-import { DEFAULT_OBJECT_COLOR, byId, insideBundle } from './model.js';
+import { DEFAULT_BUNDLE_COLOR, DEFAULT_OBJECT_COLOR, byId, insideBundle } from './model.js';
 import { pathLength, pointAt } from './bundles.js';
 import { isOpenVia, sheetName, viaDestinations } from './derive.js';
 import { richToHtml } from './richtext.js';
@@ -64,16 +64,23 @@ function endShape(doc, ep) {
     const via = byId(doc.vias, ep.viaId);
     return { point: portPoint(byId(doc.placements, ep.placementId), via), side: via.portSide, radius: PORT_R };
   }
-  if (ep.kind === 'tap') {
-    const tap = byId(doc.taps, ep.tapId);
-    return bundleSpot(byId(doc.bundles, tap.bundleId), tap.at);
-  }
+  if (ep.kind === 'tap') return tapShape(doc, byId(doc.taps, ep.tapId));
   if (ep.kind === 'junction') {
     const j = byId(doc.junctions, ep.junctionId);
     return { point: { x: j.x * G, y: j.y * G }, radius: 0 };
   }
   const via = byId(doc.vias, ep.viaId);
   return { point: { x: via.x * G, y: via.y * G }, radius: VIA_R };
+}
+
+// Several wires going in or out at the same point on a bundle spread out along
+// it (0.4 grid units apart), so their lines don't sit on top of each other.
+function tapShape(doc, tap) {
+  const b = byId(doc.bundles, tap.bundleId);
+  const same = doc.taps.filter((t) => t.bundleId === tap.bundleId && t.at === tap.at);
+  const i = same.indexOf(tap);
+  const spread = (i - (same.length - 1) / 2) * 0.4;
+  return bundleSpot(b, Math.min(Math.max(0, tap.at + spread), pathLength(b.points)));
 }
 
 // Where a wire meets a bundle `at` units along it. Wires leave a leg from its
@@ -218,6 +225,17 @@ function routeAvoiding(sa, sb, placed, wireId) {
   return best.pts;
 }
 
+// A segment shaped by hand: its middle runs at the chosen x (a vertical leg) or
+// y (a horizontal leg), joined square to both ends.
+function bentRoute(sa, sb, bend) {
+  const [o] = routeOptions(anchor(sa, centerOf(sb)), anchor(sb, centerOf(sa)));
+  const at = bend.at * G;
+  const middle = bend.axis === 'x'
+    ? [{ x: at, y: o.a1.y }, { x: at, y: o.b1.y }]
+    : [{ x: o.a1.x, y: at }, { x: o.b1.x, y: at }];
+  return [o.a, o.a1, ...middle, o.b1, o.b];
+}
+
 // Routes for every segment drawn on a sheet, cached per document (documents
 // are never changed in place, so each new state gets a fresh layout).
 const layouts = new WeakMap();
@@ -233,7 +251,9 @@ function wireLayout(doc, sheetId) {
   const routes = new Map();
   for (const seg of doc.segments) {
     if (seg.sheetId !== sheetId || insideBundle(doc, seg)) continue;
-    const pts = routeAvoiding(endShape(doc, seg.from), endShape(doc, seg.to), placed, seg.wireId);
+    const sa = endShape(doc, seg.from);
+    const sb = endShape(doc, seg.to);
+    const pts = seg.bend ? bentRoute(sa, sb, seg.bend) : routeAvoiding(sa, sb, placed, seg.wireId);
     routes.set(seg.id, pts);
     placed.push(...legsOf(pts, seg.wireId));
   }
@@ -274,15 +294,16 @@ function segmentMarkup(doc, seg, selected) {
     const len = (j) => Math.abs(pts[j + 1].x - pts[j].x) + Math.abs(pts[j + 1].y - pts[j].y);
     if (len(i) > len(best)) best = i;
   }
-  const lx = (pts[best].x + pts[best + 1].x) / 2;
-  const ly = (pts[best].y + pts[best + 1].y) / 2;
+  // The label sits on the longest leg, moved by hand if the user dragged it.
+  const lx = (pts[best].x + pts[best + 1].x) / 2 + (seg.label?.dx ?? 0) * G;
+  const ly = (pts[best].y + pts[best + 1].y) / 2 + (seg.label?.dy ?? 0) * G;
 
   return `<g class="wire${wire.universal ? ' universal' : ''}${selected ? ' selected' : ''}" data-kind="segment" data-id="${seg.id}">
     <title>${esc(wire.name)}${wire.universal ? ' (universal)' : ''}</title>
     <path class="hit" d="${d}"/>
     <path class="line" d="${d}" stroke="${esc(wire.color)}"/>
     ${head}
-    <text class="wire-label" x="${lx}" y="${ly - 4}" fill="${esc(wire.color)}">${esc(wire.name)}</text>
+    <text class="wire-label" data-kind="label" data-of="segment" data-id="${seg.id}" x="${lx}" y="${ly - 4}" fill="${esc(wire.color)}">${esc(wire.name)}</text>
   </g>`;
 }
 
@@ -356,6 +377,9 @@ export function itemsInRect(doc, sheetId, r) {
   for (const b of doc.bundles) {
     if (b.sheetId === sheetId && b.points.every((q) => inside({ x: q.x * G, y: q.y * G, w: 0, h: 0 }))) items.push({ kind: 'bundle', id: b.id });
   }
+  for (const l of doc.lines) {
+    if (l.sheetId === sheetId && [[l.x1, l.y1], [l.x2, l.y2]].every(([x, y]) => inside({ x: x * G, y: y * G, w: 0, h: 0 }))) items.push({ kind: 'line', id: l.id });
+  }
   for (const seg of doc.segments) {
     if (seg.sheetId !== sheetId || insideBundle(doc, seg)) continue;
     if (shapeInside(endShape(doc, seg.from)) && shapeInside(endShape(doc, seg.to))) items.push({ kind: 'segment', id: seg.id });
@@ -423,16 +447,17 @@ function bundleMarkup(doc, b, selected) {
   const cap = (q, from) => {
     const vertical = from.x === q.x;
     return vertical
-      ? `<line class="cap" x1="${q.x - 7}" y1="${q.y}" x2="${q.x + 7}" y2="${q.y}"/>`
-      : `<line class="cap" x1="${q.x}" y1="${q.y - 7}" x2="${q.x}" y2="${q.y + 7}"/>`;
+      ? `<line class="cap" x1="${q.x - 7}" y1="${q.y}" x2="${q.x + 7}" y2="${q.y}" style="stroke:${color}"/>`
+      : `<line class="cap" x1="${q.x}" y1="${q.y - 7}" x2="${q.x}" y2="${q.y + 7}" style="stroke:${color}"/>`;
   };
   let best = 0;
   for (let i = 1; i < pts.length - 1; i++) {
     const len = (j) => Math.abs(pts[j + 1].x - pts[j].x) + Math.abs(pts[j + 1].y - pts[j].y);
     if (len(i) > len(best)) best = i;
   }
-  const lx = (pts[best].x + pts[best + 1].x) / 2;
-  const ly = (pts[best].y + pts[best + 1].y) / 2;
+  const lx = (pts[best].x + pts[best + 1].x) / 2 + (b.label?.dx ?? 0) * G;
+  const ly = (pts[best].y + pts[best + 1].y) / 2 + (b.label?.dy ?? 0) * G;
+  const color = esc(b.color ?? DEFAULT_BUNDLE_COLOR);
   const wires = new Set(doc.taps.filter((t) => t.bundleId === b.id).map((t) => t.wireId)).size;
   // An end plugged into a subsystem box has no cap; an end that carries on from
   // a parent sheet is a bundle via, labeled with where it comes from.
@@ -441,7 +466,7 @@ function bundleMarkup(doc, b, selected) {
     if (!c) return cap(q, from);
     if (c.outerId === b.id) return '';
     const parent = sheetName(doc, byId(doc.placements, c.placementId)?.sheetId);
-    return `<rect class="bundle-via" x="${q.x - 9}" y="${q.y - 9}" width="18" height="18" rx="4"/>
+    return `<rect class="bundle-via" x="${q.x - 9}" y="${q.y - 9}" width="18" height="18" rx="4" style="stroke:${color}"/>
     <text class="bundle-via-label" x="${q.x}" y="${q.y + 24}">${esc(b.name)} from ${esc(parent)}</text>`;
   };
   const handles = selected
@@ -450,14 +475,14 @@ function bundleMarkup(doc, b, selected) {
   return `<g class="bundle${selected ? ' selected' : ''}" data-kind="bundle" data-id="${b.id}">
     <title>${esc(b.name)}</title>
     <path class="hit" d="${d}"/>
-    <path class="outer" d="${d}"/>
-    <path class="inner" d="${d}"/>
+    <path class="outer" d="${d}" style="stroke:${color}"/>
+    <path class="inner" d="${d}" style="stroke:color-mix(in srgb, ${color} 15%, #fff)"/>
     ${endMark(0, pts[0], pts[1])}${endMark(1, pts[pts.length - 1], pts[pts.length - 2])}
     ${(() => {
       // The label sits on a small pill, which is the bundle's hover-preview zone.
       const text = `${b.name} · ${wires} wire${wires === 1 ? '' : 's'}`;
       const w = text.length * 6.2 + 14;
-      return `<rect class="peek bundle-pill" x="${lx - w / 2}" y="${ly - 22}" width="${w}" height="16" rx="8"/>
+      return `<rect class="peek bundle-pill" data-kind="label" data-of="bundle" data-id="${b.id}" x="${lx - w / 2}" y="${ly - 22}" width="${w}" height="16" rx="8"/>
     <text class="bundle-label" x="${lx}" y="${ly - 10}">${esc(text)}</text>`;
     })()}
     ${handles}
@@ -467,7 +492,7 @@ function bundleMarkup(doc, b, selected) {
 // Where a wire goes into or out of a bundle; hollow when nothing continues there.
 function tapMarkup(doc, t, open, selected) {
   const wire = byId(doc.wires, t.wireId);
-  const { point } = bundleSpot(byId(doc.bundles, t.bundleId), t.at);
+  const { point } = tapShape(doc, t);
   return `<g class="tap${open ? ' open' : ''}${selected ? ' selected' : ''}" data-kind="tap" data-id="${t.id}">
     <title>${esc(wire.name)}</title>
     <circle cx="${point.x}" cy="${point.y}" r="${TAP_R}" stroke="${esc(wire.color)}" fill="${open ? '#fff' : esc(wire.color)}"/>
@@ -519,6 +544,21 @@ export function bundleDiagram(summary) {
   return { markup: parts.join(''), width: left + trackW + 44, height: bottom + 44 };
 }
 
+// A legend line: a plain colored line with a caption after its end. Not a wire.
+function lineMarkup(l, selected) {
+  const [x1, y1, x2, y2] = [l.x1 * G, l.y1 * G, l.x2 * G, l.y2 * G];
+  const right = x2 >= x1;
+  const handles = selected
+    ? [[x1, y1, 0], [x2, y2, 1]].map(([x, y, i]) => `<rect class="handle" data-kind="lineEnd" data-id="${l.id}" data-index="${i}" x="${x - 5}" y="${y - 5}" width="10" height="10"/>`).join('')
+    : '';
+  return `<g class="legend-line${selected ? ' selected' : ''}" data-kind="line" data-id="${l.id}">
+    <line class="hit" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>
+    <line class="stroke" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${esc(l.color)}"/>
+    ${l.label ? `<text class="legend-label" x="${x2 + (right ? 8 : -8)}" y="${y2 + 4}" text-anchor="${right ? 'start' : 'end'}">${esc(l.label)}</text>` : ''}
+    ${handles}
+  </g>`;
+}
+
 // A text box: rich text wrapped inside a resizable box (text beyond it is clipped).
 function noteMarkup(n, selected) {
   const r = pxRect(n);
@@ -563,6 +603,9 @@ export function sheetBounds(doc, sheetId) {
   for (const b of doc.bundles) {
     if (b.sheetId === sheetId) for (const q of b.points) rects.push({ x: q.x * G - 10, y: q.y * G - 24, w: 20, h: 34 });
   }
+  for (const l of doc.lines) {
+    if (l.sheetId === sheetId) rects.push({ x: Math.min(l.x1, l.x2) * G, y: Math.min(l.y1, l.y2) * G - 8, w: Math.abs(l.x2 - l.x1) * G + 8 * (l.label.length + 2), h: Math.abs(l.y2 - l.y1) * G + 16 });
+  }
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) rects.push({ x: u.x * G, y: u.y * G, w: G, h: G });
   for (const v of doc.vias) {
     if (v.subsystemId !== sheetId) continue;
@@ -606,6 +649,7 @@ export function renderSheet(doc, { sheetId, parentName, selection, view, width, 
   for (const u of doc.unknownLoads) if (u.sheetId === sheetId) parts.push(unknownMarkup(u, sel('unknown', u.id)));
   for (const v of doc.vias) if (v.subsystemId === sheetId && !v.crossingId) parts.push(viaMarkup(doc, v, parentName, sel('via', v.id)));
   for (const n of doc.notes) if (n.sheetId === sheetId) parts.push(noteMarkup(n, sel('note', n.id)));
+  for (const l of doc.lines) if (l.sheetId === sheetId) parts.push(lineMarkup(l, sel('line', l.id)));
   parts.push(overlay);
 
   const boundary = sheetId === 'root' || !withBoundary ? '' : `
