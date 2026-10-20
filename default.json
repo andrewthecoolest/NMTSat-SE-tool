@@ -111,7 +111,7 @@
     },
     {
       "id": "z8fzczpk",
-      "name": "POWER SUPPLY",
+      "name": "NanoPower P60 EPS",
       "type": "module",
       "color": "#334155",
       "description": [
@@ -188,138 +188,74 @@
       ]
     },
     {
-      "id": "px1zd5yr",
-      "name": "BATTERIES",
+      "id": "dxfkreqy",
+      "name": "Computer Group",
+      "type": "subsystem",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "yjhpjbhm",
+      "name": "Array Controller Unit 0",
       "type": "module",
-      "color": "#aea500",
+      "color": "#334155",
+      "description": "P60 ACU-200 module\n• 6 PV input channels per module\n• High voltage solar input, up to 16 V and 32 V\no PV array open circuit voltage must be below the battery voltage.\n• Each input rated nominally to 2 A\n• Individual power point tracking on each input channel\n• Current and voltage measurements on each input channel\n• Synchronized out-of-phase converters for low EMI operation\n• Spread Spectrum Frequency Modulation\n• PCB material: Glass/Polyimide IPC 6012C cl. 3/A\n• IPC-A-610 Class 3 assembly"
+    },
+    {
+      "id": "jkmrhvv4",
+      "name": "Power Distribution Unit 0",
+      "type": "module",
+      "color": "#334155",
+      "description": "P60 PDU-200 Module\n• 9 switchable, latch-up, overcurrent protected outputs routed to the PC104 stack and a high-current\nrated discrete connector\n• Outputs available in a high-current rated discreet connector\n• Outputs are routed via P60 Dock to the PC104 stack\n• 3 buck converters per module for regulated voltages below the battery voltage.\n• Configurable output voltages per module of 3.3 V, 5 V or 8 V\no 12 V, 18 V, 24 V possible for one regulator and two channels.\n• Protected programmable current limit on outputs\n• Current and voltage measurements on each output channel\n• Detection and logging of overcurrent events\n• Synchronized out-of-phase converters for low EMI operation\n• Spread Spectrum Frequency Modulation\n• PCB material: Glass/Polyimide IPC 6012C cl. 3/A\n• IPC-A-610 Class 3 assembly"
+    },
+    {
+      "id": "o8hg9e4m",
+      "name": "Solar Panel 0",
+      "type": "module",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "kcrxu969",
+      "name": "NanoPower BPX 100 Wh",
+      "type": "module",
+      "color": "#334155",
       "description": [
         {
-          "text": "NanoPower BPX 100 Wh\nLithium-ion Battery Pack\n\n",
+          "text": "NanoPower BPX 100 Wh\nLithium-ion Battery Pack",
           "b": true,
           "size": 24
+        },
+        {
+          "text": "\n\n"
         },
         {
           "text": "https://gomspace.com/product/nanopower-bpx/",
           "size": 18
         },
         {
-          "text": "\n\n",
-          "b": true,
-          "size": 24
-        },
-        {
-          "text": "NanoPower BPX 100 Wh, our Lithium-ion battery pack featuring a built-in heater designed for CubeSats, is crafted to provide optimal power within a compact form factor. \n\nThis robust solution is outfitted with high-capacity Li-Ion cells, ensuring adaptability and scalability to address the varied energy requirements of your space applications.\n\n------------------------------------------------------------------------\n\n"
-        },
-        {
-          "text": "High-Capacity 18650 Li-Ion Cells:",
-          "b": true
-        },
-        {
-          "text": "\n\n    Utilizes high-capacity 18650 Li-Ion cells with a nominal cell capacity of 3500 mAh, ensuring a robust and enduring power supply.\n\n"
-        },
-        {
-          "text": "Expandable and Parallel Coupling:",
-          "b": true
-        },
-        {
-          "text": "\n\n    Designed for scalability, allowing parallel coupling of any number of BPX packs to adapt to varying power demands.\n\n"
-        },
-        {
-          "text": "Configurable Nominal Voltage:",
-          "b": true
-        },
-        {
-          "text": "\n\n    Flexibility to configure the NanoPower BPX for nominal voltage ranging up to 28.8 V, providing a versatile solution for different mission scenarios.\n\n"
-        },
-        {
-          "text": "Fits Standard PC104:",
-          "b": true
-        },
-        {
-          "text": "\n\n    Designed for seamless integration, ensuring compatibility with a wide range of satellite systems using the standard PC104.\n\n"
-        },
-        {
-          "text": "Flight-Tested Reliability:",
-          "b": true
-        },
-        {
-          "text": "\n\n    Proven performance with an extensive flight history in numerous GomSpace satellite projects.\n\n------------------------------------------------------------------------\n\n"
-        },
-        {
-          "text": "Power Specifications:",
-          "b": true,
-          "size": 18
-        },
-        {
-          "text": "\n\n    Utilizes 18650 Li-Ion cells, featuring a 3500 mAh cell (Nominal).\n    Nominal Voltage: 28.8 V.\n    Nominal Wattage of 100 Wh.\n    Max Current Discharge: 6 A.\n\n"
-        },
-        {
-          "text": "Battery Configurations:",
-          "b": true,
-          "size": 18
-        },
-        {
-          "text": "\n\n    4S-2P: 12 – 16.8 V & 6 Ah (14,4 V nominel).\n    8S-1P: 24 – 33.6 V & 3 Ah (28.8 V nominal).\n\n"
-        },
-        {
-          "text": "Battery System Functionality:",
-          "b": true,
-          "size": 18
-        },
-        {
-          "text": "\n\n    Possibility to connect two battery packs in parallel through\n    the on-board connectors.\n    Autonomous/Manual Heater System included for temperature regulation.\n\n"
-        },
-        {
-          "text": "Seamless Integration:",
-          "b": true,
-          "size": 18
-        },
-        {
-          "text": "\n\n    Supports Controller Area Network (CAN) and Inter-Integrated Circuit (I²C) communication using the CubeSat Space Protocol (CSP) for telemetry (voltage and temperature) data and control (heater).\n    Fits standard PC104.\n\n"
-        },
-        {
-          "text": "Physical Specifications:",
-          "b": true,
-          "size": 18
-        },
-        {
-          "text": "\n\n    Dimensions: 93 mm x 86 mm x 41 mm.\n    Mass: Approximately 500 grams.\n\n"
-        },
-        {
-          "text": "Flight History:",
-          "b": true,
-          "size": 18
-        },
-        {
-          "text": "\n\n    Extensively flight-tested and utilized in GomSpace satellite projects."
+          "text": "\n\nNanoPower BPX 100 Wh, our Lithium-ion battery pack featuring a built-in heater designed for CubeSats, is crafted to provide optimal power within a compact form factor. \n\nThis robust solution is outfitted with high-capacity Li-Ion cells, ensuring adaptability and scalability to address the varied energy requirements of your space applications.\n\n------------------------------------------------------------------------\n\nHigh-Capacity 18650 Li-Ion Cells:\n\n    Utilizes high-capacity 18650 Li-Ion cells with a nominal cell capacity of 3500 mAh, ensuring a robust and enduring power supply.\n\nExpandable and Parallel Coupling:\n\n    Designed for scalability, allowing parallel coupling of any number of BPX packs to adapt to varying power demands.\n\nConfigurable Nominal Voltage:\n\n    Flexibility to configure the NanoPower BPX for nominal voltage ranging up to 28.8 V, providing a versatile solution for different mission scenarios.\n\nFits Standard PC104:\n\n    Designed for seamless integration, ensuring compatibility with a wide range of satellite systems using the standard PC104.\n\nFlight-Tested Reliability:\n\n    Proven performance with an extensive flight history in numerous GomSpace satellite projects.\n\n------------------------------------------------------------------------\n\nPower Specifications:\n\n    Utilizes 18650 Li-Ion cells, featuring a 3500 mAh cell (Nominal).\n    Nominal Voltage: 28.8 V.\n    Nominal Wattage of 100 Wh.\n    Max Current Discharge: 6 A.\n\nBattery Configurations:\n\n    4S-2P: 12 – 16.8 V & 6 Ah (14,4 V nominel).\n    8S-1P: 24 – 33.6 V & 3 Ah (28.8 V nominal).\n\nBattery System Functionality:\n\n    Possibility to connect two battery packs in parallel through\n    the on-board connectors.\n    Autonomous/Manual Heater System included for temperature regulation.\n\nSeamless Integration:\n\n    Supports Controller Area Network (CAN) and Inter-Integrated Circuit (I²C) communication using the CubeSat Space Protocol (CSP) for telemetry (voltage and temperature) data and control (heater).\n    Fits standard PC104.\n\nPhysical Specifications:\n\n    Dimensions: 93 mm x 86 mm x 41 mm.\n    Mass: Approximately 500 grams.\n\nFlight History:\n\n    Extensively flight-tested and utilized in GomSpace satellite projects."
         }
       ]
     },
     {
-      "id": "r47ni5ku",
-      "name": "SOLAR SUBSYSTEM",
-      "type": "subsystem",
-      "color": "#334155",
-      "description": ""
-    },
-    {
-      "id": "j1l4b68q",
-      "name": "SOLAR PANELS",
+      "id": "xct35daw",
+      "name": "Solar Panel 1",
       "type": "module",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "y7pp5p72",
-      "name": "SOLAR PANEL CONTROLLER",
+      "id": "1wz15isb",
+      "name": "Solar Panel 2",
       "type": "module",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "dxfkreqy",
-      "name": "Computer Group",
-      "type": "subsystem",
+      "id": "33qoo7mj",
+      "name": "Solar Panel 3",
+      "type": "module",
       "color": "#334155",
       "description": ""
     }
@@ -371,42 +307,6 @@
       "h": 21
     },
     {
-      "id": "31e57mp6",
-      "objectId": "px1zd5yr",
-      "sheetId": "lhk27n7e",
-      "x": 19,
-      "y": 28,
-      "w": 6,
-      "h": 3
-    },
-    {
-      "id": "4ii56xxq",
-      "objectId": "r47ni5ku",
-      "sheetId": "lhk27n7e",
-      "x": 38,
-      "y": 4,
-      "w": 9,
-      "h": 5
-    },
-    {
-      "id": "pb8qamgt",
-      "objectId": "j1l4b68q",
-      "sheetId": "r47ni5ku",
-      "x": 36,
-      "y": 6,
-      "w": 13,
-      "h": 11
-    },
-    {
-      "id": "rajwx931",
-      "objectId": "y7pp5p72",
-      "sheetId": "r47ni5ku",
-      "x": 14,
-      "y": 6,
-      "w": 13,
-      "h": 11
-    },
-    {
       "id": "r894e5ff",
       "objectId": "dxfkreqy",
       "sheetId": "root",
@@ -423,45 +323,73 @@
       "y": 4,
       "w": 6,
       "h": 3
+    },
+    {
+      "id": "yw2jbimm",
+      "objectId": "yjhpjbhm",
+      "sheetId": "lhk27n7e",
+      "x": 31,
+      "y": 7,
+      "w": 11,
+      "h": 5
+    },
+    {
+      "id": "0lbi7gxo",
+      "objectId": "jkmrhvv4",
+      "sheetId": "lhk27n7e",
+      "x": 31,
+      "y": 18,
+      "w": 11,
+      "h": 5
+    },
+    {
+      "id": "d2sktuag",
+      "objectId": "o8hg9e4m",
+      "sheetId": "lhk27n7e",
+      "x": 50,
+      "y": 6,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "dr4q9o24",
+      "objectId": "kcrxu969",
+      "sheetId": "lhk27n7e",
+      "x": 17,
+      "y": 29,
+      "w": 10,
+      "h": 3
+    },
+    {
+      "id": "pqzjnppf",
+      "objectId": "xct35daw",
+      "sheetId": "lhk27n7e",
+      "x": 50,
+      "y": 10,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "6r1py9of",
+      "objectId": "1wz15isb",
+      "sheetId": "lhk27n7e",
+      "x": 50,
+      "y": 14,
+      "w": 6,
+      "h": 3
+    },
+    {
+      "id": "b8cz2el1",
+      "objectId": "33qoo7mj",
+      "sheetId": "lhk27n7e",
+      "x": 50,
+      "y": 18,
+      "w": 6,
+      "h": 3
     }
   ],
   "unknownLoads": [],
   "wires": [
-    {
-      "id": "mw0ngosw",
-      "name": "POWER_SOLAR_CTRL_OUT",
-      "color": "#f70000",
-      "description": "",
-      "direction": "bidirectional"
-    },
-    {
-      "id": "6oujqmr6",
-      "name": "POWER_RAW_SOLAR",
-      "color": "#dc2626",
-      "description": "",
-      "direction": "bidirectional"
-    },
-    {
-      "id": "7lw26t1g",
-      "name": "GND_SOLAR",
-      "color": "#2c2b2c",
-      "description": "",
-      "direction": "bidirectional"
-    },
-    {
-      "id": "pjsf3a16",
-      "name": "V_BATT",
-      "color": "#ff2600",
-      "description": "",
-      "direction": "bidirectional"
-    },
-    {
-      "id": "ukzvgl6h",
-      "name": "GND_BATT",
-      "color": "#4b5563",
-      "description": "",
-      "direction": "bidirectional"
-    },
     {
       "id": "m3pk8vxl",
       "name": "V_COMP",
@@ -475,123 +403,44 @@
       "color": "#4b5563",
       "description": "",
       "direction": "bidirectional"
+    },
+    {
+      "id": "fg5zc2ae",
+      "name": "X1A CONN",
+      "color": "#ff2600",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "hem5lmzv",
+      "name": "X2A CONN",
+      "color": "#ff2600",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "b0qburcr",
+      "name": "V_PANEL_0",
+      "color": "#ff2600",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "gjiu3jal",
+      "name": "X1B CONN",
+      "color": "#ff2600",
+      "description": "",
+      "direction": "directed"
+    },
+    {
+      "id": "8mnvfk8r",
+      "name": "X2B CONN",
+      "color": "#ff2600",
+      "description": "",
+      "direction": "directed"
     }
   ],
   "segments": [
-    {
-      "id": "pyhne3bc",
-      "wireId": "mw0ngosw",
-      "sheetId": "lhk27n7e",
-      "from": {
-        "kind": "port",
-        "placementId": "4ii56xxq",
-        "viaId": "8at1y9ui"
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "0avhf85x"
-      }
-    },
-    {
-      "id": "xxttt3tu",
-      "wireId": "6oujqmr6",
-      "sheetId": "r47ni5ku",
-      "from": {
-        "kind": "module",
-        "placementId": "pb8qamgt",
-        "side": "left",
-        "offset": 0.39045451771129264
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "rajwx931"
-      }
-    },
-    {
-      "id": "3oaqf70e",
-      "wireId": "7lw26t1g",
-      "sheetId": "r47ni5ku",
-      "from": {
-        "kind": "module",
-        "placementId": "pb8qamgt",
-        "side": "left",
-        "offset": 0.6609090631658381
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "rajwx931"
-      }
-    },
-    {
-      "id": "yq812rxz",
-      "wireId": "mw0ngosw",
-      "sheetId": "r47ni5ku",
-      "from": {
-        "kind": "module",
-        "placementId": "rajwx931"
-      },
-      "to": {
-        "kind": "via",
-        "viaId": "8at1y9ui"
-      }
-    },
-    {
-      "id": "4bgjw0ze",
-      "wireId": "7lw26t1g",
-      "sheetId": "r47ni5ku",
-      "from": {
-        "kind": "module",
-        "placementId": "rajwx931"
-      },
-      "to": {
-        "kind": "via",
-        "viaId": "d9lj75vl"
-      }
-    },
-    {
-      "id": "2ulgc9oh",
-      "wireId": "7lw26t1g",
-      "sheetId": "lhk27n7e",
-      "from": {
-        "kind": "port",
-        "placementId": "4ii56xxq",
-        "viaId": "d9lj75vl"
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "0avhf85x"
-      }
-    },
-    {
-      "id": "jgn71eva",
-      "wireId": "pjsf3a16",
-      "sheetId": "lhk27n7e",
-      "from": {
-        "kind": "module",
-        "placementId": "0avhf85x",
-        "side": "bottom",
-        "offset": 0.2975
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "31e57mp6"
-      }
-    },
-    {
-      "id": "mjzudtn0",
-      "wireId": "ukzvgl6h",
-      "sheetId": "lhk27n7e",
-      "from": {
-        "kind": "module",
-        "placementId": "0avhf85x",
-        "side": "bottom",
-        "offset": 0.715
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "31e57mp6"
-      }
-    },
     {
       "id": "492en7e2",
       "wireId": "m3pk8vxl",
@@ -829,29 +678,114 @@
         "kind": "module",
         "placementId": "csytu1od"
       }
+    },
+    {
+      "id": "67ej2iub",
+      "wireId": "fg5zc2ae",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "yw2jbimm",
+        "pin": "X1A",
+        "side": "left",
+        "offset": 0.24399993896484376
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "0avhf85x",
+        "pin": "X1A"
+      },
+      "label": {
+        "dx": -1.5,
+        "dy": -0.25
+      }
+    },
+    {
+      "id": "wd8xxxbu",
+      "wireId": "hem5lmzv",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "0lbi7gxo",
+        "pin": "X2A",
+        "side": "left",
+        "offset": 0.19399993896484374
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "0avhf85x",
+        "pin": "X2A"
+      },
+      "label": {
+        "dx": -1.5,
+        "dy": 0
+      }
+    },
+    {
+      "id": "67dhpopl",
+      "wireId": "b0qburcr",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "d2sktuag",
+        "side": "left",
+        "offset": 0.4983332316080729,
+        "pin": "V+"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "yw2jbimm",
+        "pin": "PV0"
+      },
+      "bend": {
+        "axis": "y",
+        "at": 7.5
+      }
+    },
+    {
+      "id": "o6h6j593",
+      "wireId": "gjiu3jal",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "yw2jbimm",
+        "pin": "X1B",
+        "side": "left",
+        "offset": 0.6689999389648438
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "0avhf85x",
+        "pin": "X1B"
+      },
+      "label": {
+        "dx": -1.5,
+        "dy": -0.25
+      }
+    },
+    {
+      "id": "85t9qqd9",
+      "wireId": "8mnvfk8r",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "0lbi7gxo",
+        "pin": "X2B",
+        "side": "left",
+        "offset": 0.6339999389648437
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "0avhf85x",
+        "pin": "X2B"
+      },
+      "label": {
+        "dx": -1.5,
+        "dy": 0
+      }
     }
   ],
   "vias": [
-    {
-      "id": "8at1y9ui",
-      "wireId": "mw0ngosw",
-      "subsystemId": "r47ni5ku",
-      "direction": "bi",
-      "x": 7,
-      "y": 9,
-      "portSide": "left",
-      "portOffset": 0.20899993896484376
-    },
-    {
-      "id": "d9lj75vl",
-      "wireId": "7lw26t1g",
-      "subsystemId": "r47ni5ku",
-      "direction": "bi",
-      "x": 7,
-      "y": 12,
-      "portSide": "left",
-      "portOffset": 0.7189999389648437
-    },
     {
       "id": "rgvw585w",
       "wireId": "m3pk8vxl",
@@ -914,15 +848,6 @@
       ]
     },
     {
-      "id": "xlskdesw",
-      "sheetId": "r47ni5ku",
-      "x": 7,
-      "y": 19,
-      "w": 26,
-      "h": 21,
-      "text": "The ACU module uses 6 individual maximum power point tracking boost converters. The input is available only\nin the TFM connector on the input module. Multiple pins are used on each input to increase current carrying\ncapacity - these pins do not include protection diodes to combine multiple strings. GomSpace solar arrays in\nthe correct configuration (including one panel-mounted protection diode per string) can be combined into a\nsingle input channel."
-    },
-    {
       "id": "0cdmry85",
       "sheetId": "root",
       "x": 17,
@@ -930,6 +855,66 @@
       "w": 8,
       "h": 3,
       "text": "modules should have pins"
+    },
+    {
+      "id": "swjux706",
+      "sheetId": "lhk27n7e",
+      "x": 31,
+      "y": 4,
+      "w": 12,
+      "h": 3,
+      "text": "Solar panel MPPT controllers, 6 channels per ACU "
+    },
+    {
+      "id": "kejb6g38",
+      "sheetId": "lhk27n7e",
+      "x": 31,
+      "y": 15,
+      "w": 15,
+      "h": 4,
+      "text": "Power distribution unit, 9 controllable channels at 3.3 V, 5 V or 8 V"
+    },
+    {
+      "id": "87l0n9xy",
+      "sheetId": "lhk27n7e",
+      "x": 1,
+      "y": 4,
+      "w": 8,
+      "h": 4,
+      "text": "Need to specify which PDU output goes to computer stack"
+    },
+    {
+      "id": "nnsjybpp",
+      "sheetId": "lhk27n7e",
+      "x": 50,
+      "y": 4,
+      "w": 8,
+      "h": 2,
+      "text": [
+        {
+          "text": "Only 4 panels",
+          "b": true,
+          "size": 18
+        }
+      ]
+    },
+    {
+      "id": "bbhiecdd",
+      "sheetId": "lhk27n7e",
+      "x": 43,
+      "y": 3,
+      "w": 8,
+      "h": 4,
+      "text": "4.5V min for MPPT input. What are the ratings for panels?"
+    },
+    {
+      "id": "yn8qlt7t",
+      "sheetId": "lhk27n7e",
+      "x": 0,
+      "y": 15,
+      "w": 16,
+      "h": 11,
+      "text": "NanoPower P60 designed for A3200 flight computer. Some pins reserved for computer function that are not used when we choose HP MK3. \n\nEach daughterboard as well as motherboard exposes pins to MCUs for sensor telemetry. Does the motherboard expose this, or only daughterboards?"
     }
   ],
   "bundles": [
@@ -955,7 +940,8 @@
       "label": {
         "dx": -0.25,
         "dy": -8
-      }
+      },
+      "color": "#475569"
     },
     {
       "id": "rxuzukkz",
@@ -971,7 +957,8 @@
           "x": 10,
           "y": 2
         }
-      ]
+      ],
+      "color": "#475569"
     },
     {
       "id": "7e9xej6k",
@@ -987,7 +974,8 @@
           "x": 10,
           "y": 2
         }
-      ]
+      ],
+      "color": "#475569"
     }
   ],
   "taps": [
