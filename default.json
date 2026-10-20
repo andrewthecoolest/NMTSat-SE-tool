@@ -2,356 +2,1141 @@
   "schemaVersion": 1,
   "objects": [
     {
-      "id": "30c1ukg3",
-      "name": "Solar Array",
-      "type": "module",
-      "color": "#334155",
-      "description": ""
-    },
-    {
-      "id": "sr7p5xv2",
-      "name": "EPS",
+      "id": "lhk27n7e",
+      "name": "POWER",
       "type": "subsystem",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "b9ci7jdy",
-      "name": "C&DH",
+      "id": "euz6n3bl",
+      "name": "ADCS",
       "type": "subsystem",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "lvxfd8s0",
-      "name": "Comms",
+      "id": "yxgcnr7p",
+      "name": "RADIO",
       "type": "subsystem",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "w61kauqe",
-      "name": "PDU",
+      "id": "4bih40gl",
+      "name": "SCIENCE",
+      "type": "subsystem",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "ucu1zvsl",
+      "name": "Computer",
+      "type": "module",
+      "color": "#80a7d9",
+      "description": [
+        {
+          "text": "NanoMind HP MK3\n",
+          "b": true,
+          "size": 24
+        },
+        {
+          "text": "On-board computer",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n"
+        },
+        {
+          "text": "https://gomspace.com/product/nanomind-hp-mk3/",
+          "size": 18
+        },
+        {
+          "text": "\n\nNanoMind HP MK3 is a powerful On-board computer, designed to support high performance, yet efficient, on-board processing and H/W acceleration functions, needed to meet the increasing demands of complex payloads. \n\nThe NanoMind MK3 has proven its reliability in flight as part of SDR MK3.\n\n------------------------------------------------------------------------\n\n"
+        },
+        {
+          "text": "High-Performance Computer Platform:",
+          "b": true
+        },
+        {
+          "text": "\n\n    This platform is high-performance, versatile space-graded computer platform based on Xilinx’s Zynq®-7000 System on a Chip SoC family.\n    The Zynq®-7030/45 parts integrate a dual-core ARM® Cortex™-A9 based processing system with a Xilinx FPGA in a single device.\n\n"
+        },
+        {
+          "text": "Rapid Prototyping and Hardware Development:",
+          "b": true
+        },
+        {
+          "text": "\n\n    The combination of dual-core ARM® Cortex™-A9  based processing system and Xilinx FPGA  enables rapid software prototyping and accelerates customer programmable hardware development.\n\n"
+        },
+        {
+          "text": "Development Kits for Accelerated Application Development:",
+          "b": true
+        },
+        {
+          "text": "\n\n    GomSpace’s comprehensive development kits are specifically designed to speed up the time to market for custom application development. These kits can also be supplemented with training.\n\n"
+        },
+        {
+          "text": "Flight-Proven Technology:",
+          "b": true
+        },
+        {
+          "text": "\n\n    The NanoMind MK3 has proven its reliability in flight as part of SDR MK3.\n\n------------------------------------------------------------------------\n\n"
+        },
+        {
+          "text": "Performance:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    SoC: Xilinx Zynq 7030/7045 Programmable SoC:\n    – Dual ARM Cortex A9 MPCore, clocked up to 800 MHz.\n    – Powerful FPGA module – 125K / 350K logic cells.\n    Volatile Memory: 1024MB DDR3 (512MB with ECC enabled).\n    Non-volatile memory:\n    – RAM, 256 MB NOR flash.\n    – 70GB eMMC (pSLC) and 233GB eMMC (MLC).\n    Mechanical dimensions: 95 mm x 95 mm x 31.5 mm (with 3 x TR600).\n    Mass: 240g.\n    Radiation: 20 kRad TID.\n\n"
+        },
+        {
+          "text": "Key Interfaces:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    SpaceWire: x3, data link/network layer.\n    USB: x1, host/device.\n    Fully Configurable FPGA I/O: 11 x LVDS pairs, 10 x I/O.\n    Conditionally Configurable FPGA I/O: 12 x LVDS pairs (or Spacewire), 8 x I/O (or RS-485).\n    Conditionally Configurable ARM I/O: 6 x I/O (or eMMC#2).\n    Others: CAN/SPI/RS422/RS485/PPS.\n\n"
+        },
+        {
+          "text": "Support:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Free Software Development Kit (SDK): for the Zync 7000 Processing System (PS):\n    – Yocto environment centered around the bitbake/devtool utility (custom Linux BSP and distribution).\n    – Integrates GomSpace infrastructure SW components (parameter system, CSP etc.)\n    Free Platform Development Kit (PDK): Software Development kit for the Zync 7000 Processing System (PS) plus Xilinx Vivado tool for programmable logic (PL) design:\n    – 7030 – Free licence for Vivado.\n    – 7045 – Requires Vivado licence, please contact Xilinx directly."
+        }
+      ]
+    },
+    {
+      "id": "z8fzczpk",
+      "name": "POWER SUPPLY",
+      "type": "module",
+      "color": "#334155",
+      "description": [
+        {
+          "text": "NanoPower P60\nElectrical Power System\n\n",
+          "b": true,
+          "size": 24
+        },
+        {
+          "text": "https://gomspace.com/product/nanopower-p60/",
+          "size": 18
+        },
+        {
+          "text": "\n\n",
+          "b": true,
+          "size": 24
+        },
+        {
+          "text": "NanoPower P60 is a Electrical Power System (EPS), designed to meet the evolving demands of nanosatellite missions by combing innovation with flexibility. The P60 system represents the pinnacle of modular EPS technology, providing an unparalleled solution for the intricate power needs of large nanosatellites. It comprises a robust P60 Dock motherboard and a dynamic combination of Array Conditioning Unit (ACU) and Power Distribution Unit (PDU) daughterboards.\n\n-----------------------------------------------------------------------------\n\n"
+        },
+        {
+          "text": "Standard Configuration:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Each NanoPower P60 system comes with 1 motherboard, 1 ACU module (6 channels), and 1 PDU module (9 channels) as a standard configuration, ensuring a comprehensive power solution.\n\n"
+        },
+        {
+          "text": "Easy Integration:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Seamlessly integrate the NanoPower P60 into your nanosatellite system with the convenience of CAN/I2C-enabled CSP and GOSH interfaces, simplifying communication and control.\n\n"
+        },
+        {
+          "text": "Flight-proven product:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Proven performance with an extensive flight history in numerous GomSpace satellite projects.\n\n    NanoPower P60 is closely connected to NanoPower BPX and NanoPower BP4.\n\n-----------------------------------------------------------------------------\n\n"
+        },
+        {
+          "text": "Power Supply Module:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Max 4A from batteries. Up to 128W output power (with Vbat = 32 V).\n    Dimensions: 92 mm x 88.9 mm x 19.9 to 28.9 mm (with 3 or 5 modules).\n    Mass: <80 g + nof ACU * 54 g + nof PDU * 47 g.\n\n"
+        },
+        {
+          "text": "P60 Dock:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Supports up to 4 modules (Mix of ACU, PDU and one A3200) providing\n    scalability for diverse mission requirements.\n    Regulated 3.3 V and 5 V outputs to PC-104 stack ensure enhanced compatibility.\n    Precision-milled anodized aluminum heat sinks control thermal load, offering superior EMI shielding.\n\n"
+        },
+        {
+          "text": "ACU Module:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    6 PV inputs per module for efficient power collection.\n    High voltage solar input, up to 25 V, ensuring compatibility with various solar arrays.\n    Each input rated up to 2 A for optimized performance.\n    Individual power point tracking on each input channel enhances power generation efficiency.\n    Current and voltage measurements on each input channel provide detailed monitoring capabilities.\n\n"
+        },
+        {
+          "text": "PDU Module:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    9 switchable, latch-up, overcurrent-protected outputs routed to the\n    PC104 stack and a high-current rated discrete connector.\n    3 configurable output voltages per module ranging from 3.3 V to 18 V,\n    catering to diverse satellite subsystems.\n    Programmable current limit on protected outputs (1 A – 2 A) for precise control.\n    Current and voltage measurements on each output channel ensure\n    thorough monitoring.\n    Detection and logging of overcurrent events enhance system security."
+        }
+      ]
+    },
+    {
+      "id": "px1zd5yr",
+      "name": "BATTERIES",
+      "type": "module",
+      "color": "#aea500",
+      "description": [
+        {
+          "text": "NanoPower BPX 100 Wh\nLithium-ion Battery Pack\n\n",
+          "b": true,
+          "size": 24
+        },
+        {
+          "text": "https://gomspace.com/product/nanopower-bpx/",
+          "size": 18
+        },
+        {
+          "text": "\n\n",
+          "b": true,
+          "size": 24
+        },
+        {
+          "text": "NanoPower BPX 100 Wh, our Lithium-ion battery pack featuring a built-in heater designed for CubeSats, is crafted to provide optimal power within a compact form factor. \n\nThis robust solution is outfitted with high-capacity Li-Ion cells, ensuring adaptability and scalability to address the varied energy requirements of your space applications.\n\n------------------------------------------------------------------------\n\n"
+        },
+        {
+          "text": "High-Capacity 18650 Li-Ion Cells:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Utilizes high-capacity 18650 Li-Ion cells with a nominal cell capacity of 3500 mAh, ensuring a robust and enduring power supply.\n\n"
+        },
+        {
+          "text": "Expandable and Parallel Coupling:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Designed for scalability, allowing parallel coupling of any number of BPX packs to adapt to varying power demands.\n\n"
+        },
+        {
+          "text": "Configurable Nominal Voltage:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Flexibility to configure the NanoPower BPX for nominal voltage ranging up to 28.8 V, providing a versatile solution for different mission scenarios.\n\n"
+        },
+        {
+          "text": "Fits Standard PC104:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Designed for seamless integration, ensuring compatibility with a wide range of satellite systems using the standard PC104.\n\n"
+        },
+        {
+          "text": "Flight-Tested Reliability:",
+          "b": true
+        },
+        {
+          "text": "\n\n    Proven performance with an extensive flight history in numerous GomSpace satellite projects.\n\n------------------------------------------------------------------------\n\n"
+        },
+        {
+          "text": "Power Specifications:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Utilizes 18650 Li-Ion cells, featuring a 3500 mAh cell (Nominal).\n    Nominal Voltage: 28.8 V.\n    Nominal Wattage of 100 Wh.\n    Max Current Discharge: 6 A.\n\n"
+        },
+        {
+          "text": "Battery Configurations:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    4S-2P: 12 – 16.8 V & 6 Ah (14,4 V nominel).\n    8S-1P: 24 – 33.6 V & 3 Ah (28.8 V nominal).\n\n"
+        },
+        {
+          "text": "Battery System Functionality:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Possibility to connect two battery packs in parallel through\n    the on-board connectors.\n    Autonomous/Manual Heater System included for temperature regulation.\n\n"
+        },
+        {
+          "text": "Seamless Integration:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Supports Controller Area Network (CAN) and Inter-Integrated Circuit (I²C) communication using the CubeSat Space Protocol (CSP) for telemetry (voltage and temperature) data and control (heater).\n    Fits standard PC104.\n\n"
+        },
+        {
+          "text": "Physical Specifications:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Dimensions: 93 mm x 86 mm x 41 mm.\n    Mass: Approximately 500 grams.\n\n"
+        },
+        {
+          "text": "Flight History:",
+          "b": true,
+          "size": 18
+        },
+        {
+          "text": "\n\n    Extensively flight-tested and utilized in GomSpace satellite projects."
+        }
+      ]
+    },
+    {
+      "id": "r47ni5ku",
+      "name": "SOLAR SUBSYSTEM",
+      "type": "subsystem",
+      "color": "#334155",
+      "description": ""
+    },
+    {
+      "id": "j1l4b68q",
+      "name": "SOLAR PANELS",
       "type": "module",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "k0jf0h63",
-      "name": "Battery",
+      "id": "y7pp5p72",
+      "name": "SOLAR PANEL CONTROLLER",
       "type": "module",
       "color": "#334155",
       "description": ""
     },
     {
-      "id": "ksyz2u3l",
-      "name": "OBC",
-      "type": "module",
-      "color": "#334155",
-      "description": ""
-    },
-    {
-      "id": "7hczhmff",
-      "name": "Radio",
-      "type": "module",
+      "id": "dxfkreqy",
+      "name": "Computer Group",
+      "type": "subsystem",
       "color": "#334155",
       "description": ""
     }
   ],
   "placements": [
     {
-      "id": "ked3mbg9",
-      "objectId": "30c1ukg3",
+      "id": "ji5ztg5d",
+      "objectId": "lhk27n7e",
       "sheetId": "root",
-      "x": 2,
-      "y": 4,
-      "w": 6,
-      "h": 3
+      "x": 17,
+      "y": 22,
+      "w": 23,
+      "h": 9
     },
     {
-      "id": "mcckm8p0",
-      "objectId": "sr7p5xv2",
+      "id": "n12g89uf",
+      "objectId": "euz6n3bl",
       "sheetId": "root",
-      "x": 14,
-      "y": 3,
-      "w": 8,
-      "h": 5
+      "x": 1,
+      "y": 7,
+      "w": 15,
+      "h": 17
     },
     {
-      "id": "pfk9i12x",
-      "objectId": "b9ci7jdy",
+      "id": "3l0mracd",
+      "objectId": "yxgcnr7p",
       "sheetId": "root",
-      "x": 30,
-      "y": 3,
-      "w": 8,
-      "h": 5
-    },
-    {
-      "id": "7x8xptzz",
-      "objectId": "lvxfd8s0",
-      "sheetId": "root",
-      "x": 30,
-      "y": 14,
-      "w": 8,
-      "h": 5
-    },
-    {
-      "id": "aei8x76u",
-      "objectId": "w61kauqe",
-      "sheetId": "sr7p5xv2",
-      "x": 12,
-      "y": 4,
-      "w": 6,
-      "h": 3
-    },
-    {
-      "id": "fqjowakv",
-      "objectId": "k0jf0h63",
-      "sheetId": "sr7p5xv2",
-      "x": 12,
-      "y": 12,
-      "w": 6,
-      "h": 3
-    },
-    {
-      "id": "4brpicf4",
-      "objectId": "ksyz2u3l",
-      "sheetId": "b9ci7jdy",
-      "x": 12,
+      "x": 44,
       "y": 6,
+      "w": 11,
+      "h": 8
+    },
+    {
+      "id": "xhx69myh",
+      "objectId": "4bih40gl",
+      "sheetId": "root",
+      "x": 46,
+      "y": 16,
+      "w": 14,
+      "h": 16
+    },
+    {
+      "id": "0avhf85x",
+      "objectId": "z8fzczpk",
+      "sheetId": "lhk27n7e",
+      "x": 17,
+      "y": 4,
+      "w": 10,
+      "h": 21
+    },
+    {
+      "id": "31e57mp6",
+      "objectId": "px1zd5yr",
+      "sheetId": "lhk27n7e",
+      "x": 19,
+      "y": 28,
       "w": 6,
       "h": 3
     },
     {
-      "id": "c5tdtgke",
-      "objectId": "7hczhmff",
-      "sheetId": "lvxfd8s0",
+      "id": "4ii56xxq",
+      "objectId": "r47ni5ku",
+      "sheetId": "lhk27n7e",
+      "x": 38,
+      "y": 4,
+      "w": 9,
+      "h": 5
+    },
+    {
+      "id": "pb8qamgt",
+      "objectId": "j1l4b68q",
+      "sheetId": "r47ni5ku",
+      "x": 36,
+      "y": 6,
+      "w": 13,
+      "h": 11
+    },
+    {
+      "id": "rajwx931",
+      "objectId": "y7pp5p72",
+      "sheetId": "r47ni5ku",
       "x": 14,
       "y": 6,
+      "w": 13,
+      "h": 11
+    },
+    {
+      "id": "r894e5ff",
+      "objectId": "dxfkreqy",
+      "sheetId": "root",
+      "x": 25,
+      "y": -2,
+      "w": 9,
+      "h": 4
+    },
+    {
+      "id": "csytu1od",
+      "objectId": "ucu1zvsl",
+      "sheetId": "dxfkreqy",
+      "x": 13,
+      "y": 4,
       "w": 6,
       "h": 3
     }
   ],
-  "unknownLoads": [
-    {
-      "id": "uezv5zgd",
-      "sheetId": "root",
-      "x": 4,
-      "y": 12
-    }
-  ],
+  "unknownLoads": [],
   "wires": [
     {
-      "id": "sqjsrgvc",
-      "name": "POWER",
+      "id": "mw0ngosw",
+      "name": "POWER_SOLAR_CTRL_OUT",
+      "color": "#f70000",
+      "description": "",
+      "direction": "bidirectional"
+    },
+    {
+      "id": "6oujqmr6",
+      "name": "POWER_RAW_SOLAR",
       "color": "#dc2626",
       "description": "",
-      "direction": "directed"
+      "direction": "bidirectional"
     },
     {
-      "id": "2p7gpyg3",
-      "name": "CHARGE",
-      "color": "#ea580c",
+      "id": "7lw26t1g",
+      "name": "GND_SOLAR",
+      "color": "#2c2b2c",
       "description": "",
-      "direction": "directed"
+      "direction": "bidirectional"
     },
     {
-      "id": "cbg6ykof",
-      "name": "UART TX",
-      "color": "#2563eb",
+      "id": "pjsf3a16",
+      "name": "V_BATT",
+      "color": "#ff2600",
       "description": "",
-      "direction": "directed"
+      "direction": "bidirectional"
     },
     {
-      "id": "pqksvjww",
-      "name": "GND",
+      "id": "ukzvgl6h",
+      "name": "GND_BATT",
       "color": "#4b5563",
       "description": "",
       "direction": "bidirectional"
     },
     {
-      "id": "8jbxxzpy",
-      "name": "TEMP",
-      "color": "#16a34a",
+      "id": "m3pk8vxl",
+      "name": "V_COMP",
+      "color": "#ff2600",
       "description": "",
       "direction": "directed"
+    },
+    {
+      "id": "4zqojwf0",
+      "name": "GND_COMP",
+      "color": "#4b5563",
+      "description": "",
+      "direction": "bidirectional"
     }
   ],
   "segments": [
     {
-      "id": "8mw29lfu",
-      "wireId": "sqjsrgvc",
+      "id": "pyhne3bc",
+      "wireId": "mw0ngosw",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "port",
+        "placementId": "4ii56xxq",
+        "viaId": "8at1y9ui"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "0avhf85x"
+      }
+    },
+    {
+      "id": "xxttt3tu",
+      "wireId": "6oujqmr6",
+      "sheetId": "r47ni5ku",
+      "from": {
+        "kind": "module",
+        "placementId": "pb8qamgt",
+        "side": "left",
+        "offset": 0.39045451771129264
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "rajwx931"
+      }
+    },
+    {
+      "id": "3oaqf70e",
+      "wireId": "7lw26t1g",
+      "sheetId": "r47ni5ku",
+      "from": {
+        "kind": "module",
+        "placementId": "pb8qamgt",
+        "side": "left",
+        "offset": 0.6609090631658381
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "rajwx931"
+      }
+    },
+    {
+      "id": "yq812rxz",
+      "wireId": "mw0ngosw",
+      "sheetId": "r47ni5ku",
+      "from": {
+        "kind": "module",
+        "placementId": "rajwx931"
+      },
+      "to": {
+        "kind": "via",
+        "viaId": "8at1y9ui"
+      }
+    },
+    {
+      "id": "4bgjw0ze",
+      "wireId": "7lw26t1g",
+      "sheetId": "r47ni5ku",
+      "from": {
+        "kind": "module",
+        "placementId": "rajwx931"
+      },
+      "to": {
+        "kind": "via",
+        "viaId": "d9lj75vl"
+      }
+    },
+    {
+      "id": "2ulgc9oh",
+      "wireId": "7lw26t1g",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "port",
+        "placementId": "4ii56xxq",
+        "viaId": "d9lj75vl"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "0avhf85x"
+      }
+    },
+    {
+      "id": "jgn71eva",
+      "wireId": "pjsf3a16",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "0avhf85x",
+        "side": "bottom",
+        "offset": 0.2975
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "31e57mp6"
+      }
+    },
+    {
+      "id": "mjzudtn0",
+      "wireId": "ukzvgl6h",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "0avhf85x",
+        "side": "bottom",
+        "offset": 0.715
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "31e57mp6"
+      }
+    },
+    {
+      "id": "492en7e2",
+      "wireId": "m3pk8vxl",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "0avhf85x"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "kffbobaw"
+      }
+    },
+    {
+      "id": "cnpobwo6",
+      "wireId": "4zqojwf0",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "module",
+        "placementId": "0avhf85x"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "j9ks6vy1"
+      }
+    },
+    {
+      "id": "d0fjad2p",
+      "wireId": "m3pk8vxl",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "tap",
+        "tapId": "kffbobaw"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "aqtmgn3a"
+      }
+    },
+    {
+      "id": "jnf19wso",
+      "wireId": "m3pk8vxl",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "tap",
+        "tapId": "aqtmgn3a"
+      },
+      "to": {
+        "kind": "via",
+        "viaId": "rgvw585w"
+      }
+    },
+    {
+      "id": "chhdu5x9",
+      "wireId": "m3pk8vxl",
       "sheetId": "root",
       "from": {
-        "kind": "module",
-        "placementId": "ked3mbg9"
+        "kind": "port",
+        "placementId": "ji5ztg5d",
+        "viaId": "rgvw585w"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "9orpizzc"
+      }
+    },
+    {
+      "id": "f5wf6ryh",
+      "wireId": "m3pk8vxl",
+      "sheetId": "root",
+      "from": {
+        "kind": "tap",
+        "tapId": "9orpizzc"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "wv64ua2z"
+      }
+    },
+    {
+      "id": "xpgs6wly",
+      "wireId": "m3pk8vxl",
+      "sheetId": "root",
+      "from": {
+        "kind": "tap",
+        "tapId": "wv64ua2z"
       },
       "to": {
         "kind": "port",
-        "placementId": "mcckm8p0",
-        "viaId": "tcjzmaqn"
+        "placementId": "r894e5ff",
+        "viaId": "imlxridf"
       }
     },
     {
-      "id": "j1i3771h",
-      "wireId": "sqjsrgvc",
-      "sheetId": "sr7p5xv2",
+      "id": "2xtwrves",
+      "wireId": "m3pk8vxl",
+      "sheetId": "dxfkreqy",
       "from": {
         "kind": "via",
-        "viaId": "tcjzmaqn"
+        "viaId": "imlxridf"
       },
       "to": {
-        "kind": "module",
-        "placementId": "aei8x76u"
+        "kind": "tap",
+        "tapId": "n0uee57f"
       }
     },
     {
-      "id": "8g8ejec5",
-      "wireId": "2p7gpyg3",
-      "sheetId": "sr7p5xv2",
+      "id": "3idy3f37",
+      "wireId": "m3pk8vxl",
+      "sheetId": "dxfkreqy",
       "from": {
-        "kind": "module",
-        "placementId": "aei8x76u"
+        "kind": "tap",
+        "tapId": "n0uee57f"
       },
       "to": {
-        "kind": "module",
-        "placementId": "fqjowakv"
+        "kind": "tap",
+        "tapId": "myguy69n"
       }
     },
     {
-      "id": "yi7wpexv",
-      "wireId": "cbg6ykof",
-      "sheetId": "b9ci7jdy",
+      "id": "nk7bn6ib",
+      "wireId": "m3pk8vxl",
+      "sheetId": "dxfkreqy",
       "from": {
+        "kind": "tap",
+        "tapId": "myguy69n"
+      },
+      "to": {
         "kind": "module",
-        "placementId": "4brpicf4"
+        "placementId": "csytu1od"
+      }
+    },
+    {
+      "id": "x0atcb4i",
+      "wireId": "4zqojwf0",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "tap",
+        "tapId": "j9ks6vy1"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "501a9akf"
+      }
+    },
+    {
+      "id": "ul4xhzh8",
+      "wireId": "4zqojwf0",
+      "sheetId": "lhk27n7e",
+      "from": {
+        "kind": "tap",
+        "tapId": "501a9akf"
       },
       "to": {
         "kind": "via",
-        "viaId": "ykhsa21n"
+        "viaId": "wudgfnc4"
       }
     },
     {
-      "id": "49pg9mxo",
-      "wireId": "cbg6ykof",
+      "id": "27xba20w",
+      "wireId": "4zqojwf0",
       "sheetId": "root",
       "from": {
         "kind": "port",
-        "placementId": "pfk9i12x",
-        "viaId": "ykhsa21n"
+        "placementId": "ji5ztg5d",
+        "viaId": "wudgfnc4"
       },
       "to": {
-        "kind": "port",
-        "placementId": "7x8xptzz",
-        "viaId": "5qf6hk0w"
+        "kind": "tap",
+        "tapId": "lc41zn8j"
       }
     },
     {
-      "id": "6smo50q1",
-      "wireId": "cbg6ykof",
-      "sheetId": "lvxfd8s0",
-      "from": {
-        "kind": "via",
-        "viaId": "5qf6hk0w"
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "c5tdtgke"
-      }
-    },
-    {
-      "id": "kjhdkuo0",
-      "wireId": "pqksvjww",
+      "id": "6k4tx2u2",
+      "wireId": "4zqojwf0",
       "sheetId": "root",
       "from": {
-        "kind": "port",
-        "placementId": "mcckm8p0",
-        "viaId": "ttsczuto"
+        "kind": "tap",
+        "tapId": "lc41zn8j"
       },
       "to": {
-        "kind": "port",
-        "placementId": "pfk9i12x",
-        "viaId": "jz72ctsy"
+        "kind": "tap",
+        "tapId": "w814cnf3"
       }
     },
     {
-      "id": "a2t833dl",
-      "wireId": "pqksvjww",
-      "sheetId": "sr7p5xv2",
-      "from": {
-        "kind": "via",
-        "viaId": "ttsczuto"
-      },
-      "to": {
-        "kind": "module",
-        "placementId": "aei8x76u"
-      }
-    },
-    {
-      "id": "177qp23q",
-      "wireId": "8jbxxzpy",
+      "id": "zns7p6fp",
+      "wireId": "4zqojwf0",
       "sheetId": "root",
       "from": {
-        "kind": "module",
-        "placementId": "ked3mbg9"
+        "kind": "tap",
+        "tapId": "w814cnf3"
       },
       "to": {
-        "kind": "unknown",
-        "unknownId": "uezv5zgd"
+        "kind": "port",
+        "placementId": "r894e5ff",
+        "viaId": "ey1jdrqg"
+      }
+    },
+    {
+      "id": "0t526nk2",
+      "wireId": "4zqojwf0",
+      "sheetId": "dxfkreqy",
+      "from": {
+        "kind": "via",
+        "viaId": "ey1jdrqg"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "l34bopyg"
+      }
+    },
+    {
+      "id": "t2nd9ks2",
+      "wireId": "4zqojwf0",
+      "sheetId": "dxfkreqy",
+      "from": {
+        "kind": "tap",
+        "tapId": "l34bopyg"
+      },
+      "to": {
+        "kind": "tap",
+        "tapId": "t1czhf5w"
+      }
+    },
+    {
+      "id": "q2z3gi2f",
+      "wireId": "4zqojwf0",
+      "sheetId": "dxfkreqy",
+      "from": {
+        "kind": "tap",
+        "tapId": "t1czhf5w"
+      },
+      "to": {
+        "kind": "module",
+        "placementId": "csytu1od"
       }
     }
   ],
   "vias": [
     {
-      "id": "tcjzmaqn",
-      "wireId": "sqjsrgvc",
-      "subsystemId": "sr7p5xv2",
-      "direction": "in",
-      "x": 2,
-      "y": 5,
+      "id": "8at1y9ui",
+      "wireId": "mw0ngosw",
+      "subsystemId": "r47ni5ku",
+      "direction": "bi",
+      "x": 7,
+      "y": 9,
       "portSide": "left",
-      "portOffset": 0.5
+      "portOffset": 0.20899993896484376
     },
     {
-      "id": "ykhsa21n",
-      "wireId": "cbg6ykof",
-      "subsystemId": "b9ci7jdy",
+      "id": "d9lj75vl",
+      "wireId": "7lw26t1g",
+      "subsystemId": "r47ni5ku",
+      "direction": "bi",
+      "x": 7,
+      "y": 12,
+      "portSide": "left",
+      "portOffset": 0.7189999389648437
+    },
+    {
+      "id": "rgvw585w",
+      "wireId": "m3pk8vxl",
+      "subsystemId": "lhk27n7e",
+      "crossingId": "7ji47l4g",
       "direction": "out",
-      "x": 26,
-      "y": 7,
-      "portSide": "bottom",
-      "portOffset": 0.5
-    },
-    {
-      "id": "5qf6hk0w",
-      "wireId": "cbg6ykof",
-      "subsystemId": "lvxfd8s0",
-      "direction": "in",
-      "x": 4,
-      "y": 7,
+      "x": 2,
+      "y": 2,
       "portSide": "top",
-      "portOffset": 0.5
+      "portOffset": 0.6956521739130435
     },
     {
-      "id": "ttsczuto",
-      "wireId": "pqksvjww",
-      "subsystemId": "sr7p5xv2",
-      "direction": "bi",
-      "x": 26,
-      "y": 5,
-      "portSide": "right",
-      "portOffset": 0.5
+      "id": "imlxridf",
+      "wireId": "m3pk8vxl",
+      "subsystemId": "dxfkreqy",
+      "crossingId": "q8kvj4xy",
+      "direction": "in",
+      "x": 2,
+      "y": 2,
+      "portSide": "bottom",
+      "portOffset": 0.8527777777777777
     },
     {
-      "id": "jz72ctsy",
-      "wireId": "pqksvjww",
-      "subsystemId": "b9ci7jdy",
+      "id": "wudgfnc4",
+      "wireId": "4zqojwf0",
+      "subsystemId": "lhk27n7e",
+      "crossingId": "7ji47l4g",
       "direction": "bi",
       "x": 2,
-      "y": 5,
-      "portSide": "left",
-      "portOffset": 0.5
+      "y": 2,
+      "portSide": "top",
+      "portOffset": 0.6956521739130435
+    },
+    {
+      "id": "ey1jdrqg",
+      "wireId": "4zqojwf0",
+      "subsystemId": "dxfkreqy",
+      "crossingId": "q8kvj4xy",
+      "direction": "bi",
+      "x": 2,
+      "y": 2,
+      "portSide": "bottom",
+      "portOffset": 0.8527777777777777
     }
   ],
-  "notes": []
+  "notes": [
+    {
+      "id": "m0dtnbnn",
+      "sheetId": "root",
+      "x": 3,
+      "y": 0,
+      "w": 16,
+      "h": 5,
+      "text": [
+        {
+          "text": "NMTSat Architecture Map",
+          "b": true,
+          "size": 32
+        }
+      ]
+    },
+    {
+      "id": "xlskdesw",
+      "sheetId": "r47ni5ku",
+      "x": 7,
+      "y": 19,
+      "w": 26,
+      "h": 21,
+      "text": "The ACU module uses 6 individual maximum power point tracking boost converters. The input is available only\nin the TFM connector on the input module. Multiple pins are used on each input to increase current carrying\ncapacity - these pins do not include protection diodes to combine multiple strings. GomSpace solar arrays in\nthe correct configuration (including one panel-mounted protection diode per string) can be combined into a\nsingle input channel."
+    },
+    {
+      "id": "0cdmry85",
+      "sheetId": "root",
+      "x": 17,
+      "y": -5,
+      "w": 8,
+      "h": 3,
+      "text": "modules should have pins"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "946o2upd",
+      "sheetId": "root",
+      "name": "Computer Power",
+      "description": "",
+      "points": [
+        {
+          "x": 33,
+          "y": 22
+        },
+        {
+          "x": 33,
+          "y": 21
+        },
+        {
+          "x": 33,
+          "y": 2
+        }
+      ],
+      "label": {
+        "dx": -0.25,
+        "dy": -8
+      }
+    },
+    {
+      "id": "rxuzukkz",
+      "sheetId": "lhk27n7e",
+      "name": "Computer Power",
+      "description": "",
+      "points": [
+        {
+          "x": 2,
+          "y": 2
+        },
+        {
+          "x": 10,
+          "y": 2
+        }
+      ]
+    },
+    {
+      "id": "7e9xej6k",
+      "sheetId": "dxfkreqy",
+      "name": "Computer Power",
+      "description": "",
+      "points": [
+        {
+          "x": 2,
+          "y": 2
+        },
+        {
+          "x": 10,
+          "y": 2
+        }
+      ]
+    }
+  ],
+  "taps": [
+    {
+      "id": "kffbobaw",
+      "bundleId": "rxuzukkz",
+      "wireId": "m3pk8vxl",
+      "at": 8
+    },
+    {
+      "id": "j9ks6vy1",
+      "bundleId": "rxuzukkz",
+      "wireId": "4zqojwf0",
+      "at": 8
+    },
+    {
+      "id": "aqtmgn3a",
+      "bundleId": "rxuzukkz",
+      "wireId": "m3pk8vxl",
+      "at": 0
+    },
+    {
+      "id": "9orpizzc",
+      "bundleId": "946o2upd",
+      "wireId": "m3pk8vxl",
+      "at": 0
+    },
+    {
+      "id": "wv64ua2z",
+      "bundleId": "946o2upd",
+      "wireId": "m3pk8vxl",
+      "at": 19
+    },
+    {
+      "id": "n0uee57f",
+      "bundleId": "7e9xej6k",
+      "wireId": "m3pk8vxl",
+      "at": 0
+    },
+    {
+      "id": "myguy69n",
+      "bundleId": "7e9xej6k",
+      "wireId": "m3pk8vxl",
+      "at": 8
+    },
+    {
+      "id": "501a9akf",
+      "bundleId": "rxuzukkz",
+      "wireId": "4zqojwf0",
+      "at": 0
+    },
+    {
+      "id": "lc41zn8j",
+      "bundleId": "946o2upd",
+      "wireId": "4zqojwf0",
+      "at": 0
+    },
+    {
+      "id": "w814cnf3",
+      "bundleId": "946o2upd",
+      "wireId": "4zqojwf0",
+      "at": 19
+    },
+    {
+      "id": "l34bopyg",
+      "bundleId": "7e9xej6k",
+      "wireId": "4zqojwf0",
+      "at": 0
+    },
+    {
+      "id": "t1czhf5w",
+      "bundleId": "7e9xej6k",
+      "wireId": "4zqojwf0",
+      "at": 8
+    }
+  ],
+  "crossings": [
+    {
+      "id": "7ji47l4g",
+      "outerId": "946o2upd",
+      "outerEnd": 0,
+      "innerId": "rxuzukkz",
+      "innerEnd": 0,
+      "placementId": "ji5ztg5d",
+      "side": "top",
+      "offset": 0.6956521739130435
+    },
+    {
+      "id": "q8kvj4xy",
+      "outerId": "946o2upd",
+      "outerEnd": 1,
+      "innerId": "7e9xej6k",
+      "innerEnd": 0,
+      "placementId": "r894e5ff",
+      "side": "bottom",
+      "offset": 0.8527777777777777
+    }
+  ],
+  "junctions": [],
+  "lines": [
+    {
+      "id": "3nxdkumd",
+      "sheetId": "root",
+      "x1": 44,
+      "y1": -3,
+      "x2": 48,
+      "y2": -3,
+      "color": "#ff2600",
+      "label": "POWER"
+    },
+    {
+      "id": "wx5yhabv",
+      "sheetId": "root",
+      "x1": 44,
+      "y1": -2,
+      "x2": 48,
+      "y2": -2,
+      "color": "#ff9200",
+      "label": "ANALOG"
+    },
+    {
+      "id": "2uqmi2yn",
+      "sheetId": "root",
+      "x1": 44,
+      "y1": -1,
+      "x2": 48,
+      "y2": -1,
+      "color": "#00f900",
+      "label": "DIGITAL"
+    },
+    {
+      "id": "lt74dwdw",
+      "sheetId": "root",
+      "x1": 44,
+      "y1": 0,
+      "x2": 48,
+      "y2": 0,
+      "color": "#932092",
+      "label": "MECHANICAL"
+    },
+    {
+      "id": "5h9f9cxf",
+      "sheetId": "root",
+      "x1": 44,
+      "y1": 1,
+      "x2": 48,
+      "y2": 1,
+      "color": "#000000",
+      "label": "GND"
+    }
+  ]
 }
