@@ -324,7 +324,7 @@ function check(doc) {
     if (typeof b.name !== 'string' || !b.name.trim() || !isRich(b.description)) errors.push('A bundle has no name or an invalid description.');
     else if (!sheetOk(b.sheetId)) errors.push(`${b.name} is on a missing sheet.`);
     else if (!pointsOk || !isOrthogonal(b.points) || !pathLength(b.points)) errors.push(`${b.name} needs a path of straight horizontal and vertical legs.`);
-    else if ((b.color !== undefined && !HEX.test(b.color)) || (b.highlight !== undefined && !HEX.test(b.highlight)) || !offsetOk(b.label)) errors.push(`${b.name} has an invalid color or label position.`);
+    else if ((b.color !== undefined && !HEX.test(b.color)) || !offsetOk(b.label)) errors.push(`${b.name} has an invalid color or label position.`);
   }
   const usedEnds = new Set();
   for (const c of doc.crossings) {
@@ -1118,19 +1118,15 @@ const commands = {
   },
 
   // Name, color and description belong to the whole bundle, across subsystem edges.
-  // highlight: a color for the band behind the bundle, or null for none.
-  editBundle(doc, { id, name, description, color, highlight }) {
+  editBundle(doc, { id, name, description, color }) {
     get(doc.bundles, id);
     if (name !== undefined && !String(name).trim()) fail('Names cannot be empty.');
     if (color !== undefined && !HEX.test(color)) fail('Unknown color.');
-    if (highlight != null && !HEX.test(highlight)) fail('Unknown color.');
     const clean = description === undefined ? undefined : cleanRich(description);
     for (const { bundle } of bundleChain(doc, id).items) {
       if (name !== undefined) bundle.name = String(name).trim();
       if (clean !== undefined) bundle.description = clean;
       if (color !== undefined) bundle.color = color.toLowerCase();
-      if (highlight === null) delete bundle.highlight;
-      else if (highlight !== undefined) bundle.highlight = highlight.toLowerCase();
     }
   },
 

@@ -237,20 +237,6 @@ export function bundleSectionLines(summary) {
   return summary.sections.map((s) => ({ text: `${summary.cutLabel(s.from)} → ${summary.cutLabel(s.to)}: ${s.wires.map((w) => w.name).join(', ') || 'empty'}` }));
 }
 
-// A solid band of color behind the bundle, to make it stand out.
-const HIGHLIGHT = '#fde047';
-function highlightRow(app, b) {
-  const color = colorInput(b.highlight ?? HIGHLIGHT, (e) => {
-    if (on.checked) save(app, e, { type: 'editBundle', id: b.id, highlight: e.target.value });
-  });
-  color.disabled = !b.highlight;
-  const on = h('input', { type: 'checkbox', checked: !!b.highlight, onchange: () => {
-    if (!app.commit({ type: 'editBundle', id: b.id, highlight: on.checked ? color.value : null })) on.checked = !on.checked;
-    color.disabled = !on.checked;
-  } });
-  return h('div', { class: 'row' }, h('label', { class: 'check' }, on, 'Highlight this bundle'), color);
-}
-
 function bundlePage(app) {
   const { doc, subject } = app;
   const b = byId(doc.bundles, subject.id);
@@ -262,7 +248,6 @@ function bundlePage(app) {
         if (save(app, e, { type: 'editBundle', id: b.id, name: e.target.value })) e.target.closest('.page').querySelector('.title').textContent = `${e.target.value.trim()}(bundle)`;
       }, { class: 'name' }),
       colorInput(b.color ?? DEFAULT_BUNDLE_COLOR, (e) => save(app, e, { type: 'editBundle', id: b.id, color: e.target.value })))),
-    section('HIGHLIGHT', highlightRow(app, b)),
     section('DESCRIPTION', descriptionInput(app, b.description, (description) => ({ type: 'editBundle', id: b.id, description }))),
     section('SECTIONS', list(bundleSectionLines(summary).map((x) => h('li', {}, x.text)))),
     section('WIRES', list(bundleWireLines(summary).map((x) => h('li', { class: x.unresolved ? 'unresolved' : '' }, swatch(x.wire.color), `${x.wire.name}: ${x.text}`)), 'No wires yet. Draw a wire onto the bundle to put it in.')),

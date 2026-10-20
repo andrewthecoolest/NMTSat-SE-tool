@@ -449,9 +449,9 @@ function unknownMarkup(u, selected) {
   </g>`;
 }
 
-// A bundle: a thick two-tone line along its path, capped at both ends, over an
-// optional highlight band. Its name shows only in its hover preview, which the
-// whole line opens. Corner handles when selected.
+// A bundle: a thick two-tone line along its path, capped at both ends. Its name
+// shows only in its hover preview, which the whole line opens. Corner handles
+// when selected.
 function bundleMarkup(doc, b, selected) {
   const pts = b.points.map((q) => ({ x: q.x * G, y: q.y * G }));
   const d = 'M' + pts.map((q) => `${q.x},${q.y}`).join(' L');
@@ -476,7 +476,6 @@ function bundleMarkup(doc, b, selected) {
     ? pts.map((q, i) => `<rect class="handle" data-kind="bundlePoint" data-id="${b.id}" data-index="${i}" x="${q.x - 5}" y="${q.y - 5}" width="10" height="10"/>`).join('')
     : '';
   return `<g class="bundle${selected ? ' selected' : ''}" data-kind="bundle" data-id="${b.id}">
-    ${b.highlight ? `<path class="highlight" d="${d}" style="stroke:${esc(b.highlight)}"/>` : ''}
     <path class="hit peek" d="${d}"/>
     <path class="outer" d="${d}" style="stroke:${color}"/>
     <path class="inner" d="${d}" style="stroke:color-mix(in srgb, ${color} 15%, #fff)"/>
