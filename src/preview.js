@@ -36,7 +36,7 @@ function description(rich) {
 }
 
 const connectionList = (entries, arrow) => list(entries.map((c) => h('li', { class: c.unresolved ? 'unresolved' : '' },
-  swatch(c.wire.color), `${c.wire.name} ${arrow} ${c.name}`, c.unresolved ? ' (unresolved)' : '')));
+  swatch(c.wire.color), `${c.wire.name} ${arrow} ${c.name}`, c.unresolved ? ' (unresolved)' : '', c.pin ? ` · pin ${c.pin}` : '')));
 
 function subsystemDetails(doc, obj) {
   const s = subsystemSummary(doc, obj.id);
@@ -160,7 +160,7 @@ export function createPreview({ host, getDoc, boxRect, parentName, onOpen }) {
     const [kind, id] = key.split(':');
     const bundle = kind === 'b' && byId(doc.bundles, id);
     const p = kind === 'p' && byId(doc.placements, id);
-    const obj = bundle ? { type: 'bundle', name: bundle.name, color: '#475569' } : p && byId(doc.objects, p.objectId);
+    const obj = bundle ? { type: 'bundle', name: bundle.name, color: bundle.color ?? '#475569' } : p && byId(doc.objects, p.objectId);
     const rect = boxRect(key);
     if (!obj || !rect) return;
 

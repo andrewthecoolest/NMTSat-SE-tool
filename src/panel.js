@@ -1,6 +1,6 @@
 // The info view: a large centered dialog laid out like a man page.
-import { byId, nodeName, objectByName, wireByName } from './model.js';
-import { appearsOn, bundleSummary, connections, sheetName, subsystemSummary, wireSummary } from './derive.js';
+import { DEFAULT_BUNDLE_COLOR, PIN_MAX, byId, nodeName, objectByName, wireByName } from './model.js';
+import { appearsOn, bundleSummary, connections, moduleEnds, sheetName, subsystemSummary, wireSummary } from './derive.js';
 import { richEditor } from './richtext.js';
 
 export function h(tag, props = {}, ...children) {
@@ -70,7 +70,16 @@ function sheetLinks(app, sheetIds) {
 
 function connectionList(entries, arrowSymbol) {
   return list(entries.map((c) => h('li', { class: c.unresolved ? 'unresolved' : '' },
-    swatch(c.wire.color), `${c.wire.name} ${arrowSymbol} ${c.name}`, c.unresolved ? ' (unresolved)' : '')));
+    swatch(c.wire.color), `${c.wire.name} ${arrowSymbol} ${c.name}`, c.unresolved ? ' (unresolved)' : '', c.pin ? ` · pin ${c.pin}` : '')));
+}
+
+// One row per wire end at a module, each with its pin name to edit.
+// ends: [{ segment, end, label }]
+function pinRows(app, ends, empty) {
+  return list(ends.map((x) => h('li', { class: 'pin-row' },
+    h('span', {}, x.label),
+    textInput(x.segment[x.end].pin ?? '', (e) => save(app, e, { type: 'setPin', id: x.segment.id, end: x.end, pin: e.target.value }),
+      { class: 'pin', placeholder: 'pin', maxLength: PIN_MAX }))), empty);
 }
 
 function objectPage(app) {
@@ -105,7 +114,11 @@ function objectPage(app) {
 
   if (obj.type === 'module') {
     const conns = connections(doc, obj.id);
-    parts.push(section('CONN-IN', connectionList(conns.in, '←')), section('CONN-OUT', connectionList(conns.out, '→')));
+    const ends = moduleEnds(doc, obj.id).map((x) => ({ ...x, label: [swatch(x.wire.color), `${x.wire.name} ${x.arrow} ${x.toward}`] }));
+    parts.push(
+      section('CONN-IN', connectionList(conns.in, '←')),
+      section('CONN-OUT', connectionList(conns.out, '→')),
+      section('PINS', pinRows(app, ends, 'No wires yet.')));
   } else {
     const s = subsystemSummary(doc, obj.id);
     const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -187,11 +200,21 @@ function wirePage(app) {
     summary.origin && section('ORIGIN', h('p', {}, summary.origin.name)),
     section('ENDPOINTS', list(summary.endpoints.map((n) => h('li', { class: n.unresolved ? 'unresolved' : '' }, n.name, n.unresolved ? ' (unresolved)' : '')))),
     section('APPEARS ON', sheetLinks(app, summary.sheets)),
+    segmentPins(app),
     subject.segmentId && byId(doc.segments, subject.segmentId) &&
       h('footer', {},
         byId(doc.segments, subject.segmentId).bend && h('button', { onclick: () => app.commit({ type: 'setSegmentBend', id: subject.segmentId }) }, 'Auto-route this segment'),
         h('button', { class: 'danger', onclick: () => app.deleteSegment(subject.segmentId) }, 'Delete segment')),
   ];
+}
+
+// Pin names where the segment the view was opened from meets modules.
+function segmentPins(app) {
+  const seg = byId(app.doc.segments, app.subject.segmentId);
+  const ends = seg ? ['from', 'to'].filter((end) => seg[end].kind === 'module') : [];
+  if (!ends.length) return null;
+  const moduleName = (ep) => byId(app.doc.objects, byId(app.doc.placements, ep.placementId)?.objectId)?.name ?? '?';
+  return section('PINS', pinRows(app, ends.map((end) => ({ segment: seg, end, label: `at ${moduleName(seg[end])}` }))));
 }
 
 // Where each wire in a bundle goes in and out, in words (shared with the hover preview).
@@ -214,6 +237,20 @@ export function bundleSectionLines(summary) {
   return summary.sections.map((s) => ({ text: `${summary.cutLabel(s.from)} → ${summary.cutLabel(s.to)}: ${s.wires.map((w) => w.name).join(', ') || 'empty'}` }));
 }
 
+// A solid band of color behind the bundle, to make it stand out.
+const HIGHLIGHT = '#fde047';
+function highlightRow(app, b) {
+  const color = colorInput(b.highlight ?? HIGHLIGHT, (e) => {
+    if (on.checked) save(app, e, { type: 'editBundle', id: b.id, highlight: e.target.value });
+  });
+  color.disabled = !b.highlight;
+  const on = h('input', { type: 'checkbox', checked: !!b.highlight, onchange: () => {
+    if (!app.commit({ type: 'editBundle', id: b.id, highlight: on.checked ? color.value : null })) on.checked = !on.checked;
+    color.disabled = !on.checked;
+  } });
+  return h('div', { class: 'row' }, h('label', { class: 'check' }, on, 'Highlight this bundle'), color);
+}
+
 function bundlePage(app) {
   const { doc, subject } = app;
   const b = byId(doc.bundles, subject.id);
@@ -224,7 +261,8 @@ function bundlePage(app) {
       textInput(b.name, (e) => {
         if (save(app, e, { type: 'editBundle', id: b.id, name: e.target.value })) e.target.closest('.page').querySelector('.title').textContent = `${e.target.value.trim()}(bundle)`;
       }, { class: 'name' }),
-      colorInput(b.color ?? '#475569', (e) => save(app, e, { type: 'editBundle', id: b.id, color: e.target.value })))),
+      colorInput(b.color ?? DEFAULT_BUNDLE_COLOR, (e) => save(app, e, { type: 'editBundle', id: b.id, color: e.target.value })))),
+    section('HIGHLIGHT', highlightRow(app, b)),
     section('DESCRIPTION', descriptionInput(app, b.description, (description) => ({ type: 'editBundle', id: b.id, description }))),
     section('SECTIONS', list(bundleSectionLines(summary).map((x) => h('li', {}, x.text)))),
     section('WIRES', list(bundleWireLines(summary).map((x) => h('li', { class: x.unresolved ? 'unresolved' : '' }, swatch(x.wire.color), `${x.wire.name}: ${x.text}`)), 'No wires yet. Draw a wire onto the bundle to put it in.')),

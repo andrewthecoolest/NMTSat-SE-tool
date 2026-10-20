@@ -10,6 +10,7 @@ const DEFAULT_LINE_COLOR = '#dc2626';
 export const DEFAULT_OBJECT_COLOR = '#334155';
 const DEFAULT_WIRE_COLOR = '#2563eb';
 const SIDES = ['top', 'right', 'bottom', 'left'];
+export const PIN_MAX = 40; // longest pin name, in characters
 const PORT_SPREAD = [0.5, 0.3, 0.7, 0.2, 0.8, 0.4, 0.6];
 
 export function emptyDoc() {
@@ -44,6 +45,13 @@ class ModelError extends Error {}
 const fail = (message) => { throw new ModelError(message); };
 const get = (list, id) => byId(list, id) || fail('That item no longer exists.');
 const clamp01 = (n) => Math.min(1, Math.max(0, Number(n) || 0));
+
+function setPinOn(ep, pin) {
+  const name = String(pin ?? '').trim();
+  if (name.length > PIN_MAX) fail(`Pin names can be at most ${PIN_MAX} characters.`);
+  if (name) ep.pin = name;
+  else delete ep.pin;
+}
 
 // ---------------------------------------------------------------------------
 // Wire graphs. Nodes are module entities ("m:id"), unknown loads ("u:id"), vias
@@ -316,7 +324,7 @@ function check(doc) {
     if (typeof b.name !== 'string' || !b.name.trim() || !isRich(b.description)) errors.push('A bundle has no name or an invalid description.');
     else if (!sheetOk(b.sheetId)) errors.push(`${b.name} is on a missing sheet.`);
     else if (!pointsOk || !isOrthogonal(b.points) || !pathLength(b.points)) errors.push(`${b.name} needs a path of straight horizontal and vertical legs.`);
-    else if ((b.color !== undefined && !HEX.test(b.color)) || !offsetOk(b.label)) errors.push(`${b.name} has an invalid color or label position.`);
+    else if ((b.color !== undefined && !HEX.test(b.color)) || (b.highlight !== undefined && !HEX.test(b.highlight)) || !offsetOk(b.label)) errors.push(`${b.name} has an invalid color or label position.`);
   }
   const usedEnds = new Set();
   for (const c of doc.crossings) {
@@ -402,6 +410,9 @@ function check(doc) {
 
 function endpointProblem(doc, seg, ep) {
   if (!ep) return 'a segment is missing an end';
+  if (ep.pin !== undefined && (ep.kind !== 'module' || typeof ep.pin !== 'string' || !ep.pin.trim() || ep.pin.length > PIN_MAX)) {
+    return 'a wire end has an invalid pin name';
+  }
   if (ep.kind === 'module' && (ep.side !== undefined || ep.offset !== undefined) && (!SIDES.includes(ep.side) || !(ep.offset >= 0 && ep.offset <= 1))) {
     return 'a segment is attached to an invalid spot on a module';
   }
@@ -786,7 +797,7 @@ function dissolveBundle(doc, bundle) {
         const u = { id: newId(), sheetId: bundle.sheetId, x: Math.floor(pos.x), y: Math.floor(pos.y) };
         doc.unknownLoads.push(u);
         const end = { kind: 'unknown', unknownId: u.id };
-        added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: only.entering ? only.ep : end, to: only.entering ? end : only.ep });
+        added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: only.entering ? { ...only.ep } : end, to: only.entering ? end : { ...only.ep } });
         continue;
       }
       if (ends.length < 2) continue;
@@ -797,7 +808,8 @@ function dissolveBundle(doc, bundle) {
       if (hub.ep.kind === 'unknown' && rest.length > 1) {
         fail(`Can't remove ${bundle.name}: an unknown load feeds ${w.name} to several places through it. Promote the unknown load first.`);
       }
-      for (const x of rest) added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: hub.ep, to: x.ep });
+      // Copies, so no two segments share an end object (a pin edit on one would change both).
+      for (const x of rest) added.push({ id: newId(), wireId: w.id, sheetId: bundle.sheetId, from: { ...hub.ep }, to: { ...x.ep } });
     }
     const gone = new Set([...inner, ...outer].map((e) => e.seg));
     doc.segments = doc.segments.filter((s) => !gone.has(s)).concat(added);
@@ -839,7 +851,8 @@ const commands = {
     Object.assign(get(doc.vias, id), { portSide: side, portOffset: clamp01(offset) });
   },
 
-  drawSegment(doc, { sheetId, from, to, wire: spec }) {
+  // pins: optional { from, to } pin names, for ends that land on modules.
+  drawSegment(doc, { sheetId, from, to, wire: spec, pins }) {
     const name = String(spec?.name ?? '').trim();
     if (!name) fail('Give the wire a name.');
     let wire = wireByName(doc, name);
@@ -884,6 +897,7 @@ const commands = {
     }
     const seg = { id: newId(), wireId: wire.id, sheetId, from: a, to: b };
     doc.segments.push(seg);
+    for (const end of ['from', 'to']) if (pins?.[end] !== undefined && seg[end].kind === 'module') setPinOn(seg[end], pins[end]);
     return { id: seg.id, wireId: wire.id };
   },
 
@@ -1104,15 +1118,19 @@ const commands = {
   },
 
   // Name, color and description belong to the whole bundle, across subsystem edges.
-  editBundle(doc, { id, name, description, color }) {
+  // highlight: a color for the band behind the bundle, or null for none.
+  editBundle(doc, { id, name, description, color, highlight }) {
     get(doc.bundles, id);
     if (name !== undefined && !String(name).trim()) fail('Names cannot be empty.');
     if (color !== undefined && !HEX.test(color)) fail('Unknown color.');
+    if (highlight != null && !HEX.test(highlight)) fail('Unknown color.');
     const clean = description === undefined ? undefined : cleanRich(description);
     for (const { bundle } of bundleChain(doc, id).items) {
       if (name !== undefined) bundle.name = String(name).trim();
       if (clean !== undefined) bundle.description = clean;
       if (color !== undefined) bundle.color = color.toLowerCase();
+      if (highlight === null) delete bundle.highlight;
+      else if (highlight !== undefined) bundle.highlight = highlight.toLowerCase();
     }
   },
 
@@ -1253,6 +1271,13 @@ const commands = {
       if (!SIDES.includes(side)) fail('Unknown side.');
       Object.assign(ep, { side, offset: clamp01(offset) });
     }
+  },
+
+  // Name the pin where a segment meets a module; an empty name removes it.
+  setPin(doc, { id, end, pin }) {
+    const ep = get(doc.segments, id)[end === 'to' ? 'to' : 'from'];
+    if (ep.kind !== 'module') fail('Only wire ends on modules have pins.');
+    setPinOn(ep, pin);
   },
 
   deleteNote(doc, { id }) {

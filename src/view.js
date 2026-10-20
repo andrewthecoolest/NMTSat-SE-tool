@@ -276,6 +276,15 @@ export function segmentEnds(doc, seg) {
   return { from: anchor(sa, centerOf(sb)), to: anchor(sb, centerOf(sa)) };
 }
 
+// A pin name, written just inside the module's edge where the wire meets it.
+function pinLabel(pin, at) {
+  const [nx, ny] = NORMAL[at.side];
+  const anchor = nx ? (nx > 0 ? 'end' : 'start') : 'middle';
+  const x = at.x - nx * 4;
+  const y = ny ? at.y - ny * 4 + (ny < 0 ? 8 : 0) : at.y + 3.5;
+  return `<text class="pin-label" x="${x}" y="${y}" text-anchor="${anchor}">${esc(pin)}</text>`;
+}
+
 function segmentMarkup(doc, seg, selected) {
   const wire = byId(doc.wires, seg.wireId);
   const pts = wireLayout(doc, seg.sheetId).routes.get(seg.id);
@@ -297,12 +306,13 @@ function segmentMarkup(doc, seg, selected) {
   // The label sits on the longest leg, moved by hand if the user dragged it.
   const lx = (pts[best].x + pts[best + 1].x) / 2 + (seg.label?.dx ?? 0) * G;
   const ly = (pts[best].y + pts[best + 1].y) / 2 + (seg.label?.dy ?? 0) * G;
+  const pins = [[seg.from, pts[0]], [seg.to, b]].map(([ep, at]) => (ep.pin && at.side ? pinLabel(ep.pin, at) : '')).join('');
 
   return `<g class="wire${wire.universal ? ' universal' : ''}${selected ? ' selected' : ''}" data-kind="segment" data-id="${seg.id}">
     <title>${esc(wire.name)}${wire.universal ? ' (universal)' : ''}</title>
     <path class="hit" d="${d}"/>
     <path class="line" d="${d}" stroke="${esc(wire.color)}"/>
-    ${head}
+    ${head}${pins}
     <text class="wire-label" data-kind="label" data-of="segment" data-id="${seg.id}" x="${lx}" y="${ly - 4}" fill="${esc(wire.color)}">${esc(wire.name)}</text>
   </g>`;
 }
@@ -439,8 +449,9 @@ function unknownMarkup(u, selected) {
   </g>`;
 }
 
-// A bundle: a thick two-tone line along its path, capped at both ends, labeled
-// with its name and how many wires it carries. Corner handles when selected.
+// A bundle: a thick two-tone line along its path, capped at both ends, over an
+// optional highlight band. Its name shows only in its hover preview, which the
+// whole line opens. Corner handles when selected.
 function bundleMarkup(doc, b, selected) {
   const pts = b.points.map((q) => ({ x: q.x * G, y: q.y * G }));
   const d = 'M' + pts.map((q) => `${q.x},${q.y}`).join(' L');
@@ -450,15 +461,7 @@ function bundleMarkup(doc, b, selected) {
       ? `<line class="cap" x1="${q.x - 7}" y1="${q.y}" x2="${q.x + 7}" y2="${q.y}" style="stroke:${color}"/>`
       : `<line class="cap" x1="${q.x}" y1="${q.y - 7}" x2="${q.x}" y2="${q.y + 7}" style="stroke:${color}"/>`;
   };
-  let best = 0;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const len = (j) => Math.abs(pts[j + 1].x - pts[j].x) + Math.abs(pts[j + 1].y - pts[j].y);
-    if (len(i) > len(best)) best = i;
-  }
-  const lx = (pts[best].x + pts[best + 1].x) / 2 + (b.label?.dx ?? 0) * G;
-  const ly = (pts[best].y + pts[best + 1].y) / 2 + (b.label?.dy ?? 0) * G;
   const color = esc(b.color ?? DEFAULT_BUNDLE_COLOR);
-  const wires = new Set(doc.taps.filter((t) => t.bundleId === b.id).map((t) => t.wireId)).size;
   // An end plugged into a subsystem box has no cap; an end that carries on from
   // a parent sheet is a bundle via, labeled with where it comes from.
   const endMark = (end, q, from) => {
@@ -473,18 +476,11 @@ function bundleMarkup(doc, b, selected) {
     ? pts.map((q, i) => `<rect class="handle" data-kind="bundlePoint" data-id="${b.id}" data-index="${i}" x="${q.x - 5}" y="${q.y - 5}" width="10" height="10"/>`).join('')
     : '';
   return `<g class="bundle${selected ? ' selected' : ''}" data-kind="bundle" data-id="${b.id}">
-    <title>${esc(b.name)}</title>
-    <path class="hit" d="${d}"/>
+    ${b.highlight ? `<path class="highlight" d="${d}" style="stroke:${esc(b.highlight)}"/>` : ''}
+    <path class="hit peek" d="${d}"/>
     <path class="outer" d="${d}" style="stroke:${color}"/>
     <path class="inner" d="${d}" style="stroke:color-mix(in srgb, ${color} 15%, #fff)"/>
     ${endMark(0, pts[0], pts[1])}${endMark(1, pts[pts.length - 1], pts[pts.length - 2])}
-    ${(() => {
-      // The label sits on a small pill, which is the bundle's hover-preview zone.
-      const text = `${b.name} · ${wires} wire${wires === 1 ? '' : 's'}`;
-      const w = text.length * 6.2 + 14;
-      return `<rect class="peek bundle-pill" data-kind="label" data-of="bundle" data-id="${b.id}" x="${lx - w / 2}" y="${ly - 22}" width="${w}" height="16" rx="8"/>
-    <text class="bundle-label" x="${lx}" y="${ly - 10}">${esc(text)}</text>`;
-    })()}
     ${handles}
   </g>`;
 }

@@ -1,6 +1,6 @@
 // App wiring: state, history, pointer/keyboard handling, toolbar.
 import { apply, byId, emptyDoc, upgrade, validate, wireByName } from './model.js';
-import { bundleSummary, sheetName, sheetPath, status } from './derive.js';
+import { bundleSummary, moduleEnds, sheetName, sheetPath, status } from './derive.js';
 import { G, itemsInRect, nearestSide, renderSheet, segmentEnds, segmentRoute, wireGhost } from './view.js';
 import { flushEdits, h, renderPanel } from './panel.js';
 import { localStore } from './storage.js';
@@ -36,15 +36,17 @@ let wiring = null;         // a wire started by a click, following the pointer u
 let bundling = null;       // a bundle being laid out: { points (grid), cursor (grid) }
 let spaceDown = false;     // Space held: dragging pans
 let lastClick = {};        // for double-click detection
+let hoverAt = null;        // last pointer position over the canvas (client px), for bundle previews
 const views = {};          // sheet id -> { x, y, k }
 
 const hoverPreview = createPreview({
   host: document.querySelector('main'),
   getDoc: () => doc,
+  // A bundle's preview grows from the spot on its line under the pointer.
   boxRect: (key) => {
     const [kind, id] = key.split(':');
-    const el = kind === 'b' ? svg.querySelector(`[data-kind="bundle"][data-id="${id}"] > .peek`) : svg.querySelector(`[data-kind="placement"][data-id="${id}"] > .body`);
-    return el?.getBoundingClientRect() ?? null;
+    if (kind === 'b') return svg.querySelector(`[data-kind="bundle"][data-id="${id}"]`) && hoverAt ? { left: hoverAt.x - 12, top: hoverAt.y - 12, width: 24, height: 24 } : null;
+    return svg.querySelector(`[data-kind="placement"][data-id="${id}"] > .body`)?.getBoundingClientRect() ?? null;
   },
   parentName: () => sheetName(doc, currentSheet()),
   // Clicking a preview enters the subsystem (or, on its details, opens its info),
@@ -336,6 +338,11 @@ function syncWireDialog() {
   // A universal wire is always bidirectional.
   if (!existing && form.elements.universal.checked) form.elements.direction.value = 'bidirectional';
   form.elements.direction.disabled = !!existing || form.elements.universal.checked;
+  // An existing wire's pin at the same module is the likely one, until the user types their own.
+  for (const field of wireDialog.querySelectorAll('[data-pin]')) {
+    const input = field.querySelector('input');
+    if (!field.hidden && !input.dataset.typed) input.value = (existing && moduleEnds(doc, field.dataset.objectId).find((x) => x.wire === existing && x.pin)?.pin) || '';
+  }
   document.getElementById('wireHint').textContent = existing
     ? existing.universal
       ? `Adds to the universal wire ${existing.name}: it is connected everywhere it appears.`
@@ -346,8 +353,22 @@ function syncWireDialog() {
 }
 wireDialog.querySelector('[name=name]').addEventListener('input', syncWireDialog);
 wireDialog.querySelector('[name=universal]').addEventListener('change', syncWireDialog);
+for (const input of wireDialog.querySelectorAll('[data-pin] input')) input.addEventListener('input', () => { input.dataset.typed = '1'; });
 
-async function askWire(name) {
+// ends: { from, to } drop targets; an end on a module gets a pin field.
+async function askWire(name, ends = {}) {
+  for (const field of wireDialog.querySelectorAll('[data-pin]')) {
+    const t = ends[field.dataset.pin];
+    const p = t?.kind === 'module' && byId(doc.placements, t.placementId);
+    const obj = p && byId(doc.objects, p.objectId);
+    field.hidden = !obj;
+    field.querySelector('input').disabled = !obj;
+    delete field.querySelector('input').dataset.typed;
+    if (obj) {
+      field.dataset.objectId = obj.id;
+      field.querySelector('b').textContent = obj.name;
+    }
+  }
   const pending = ask(wireDialog, { name, color: WIRE_COLORS[doc.wires.length % WIRE_COLORS.length], direction: 'directed' });
   syncWireDialog();
   return pending;
@@ -466,7 +487,7 @@ function boxFrom(a, b, fallback = { w: 6, h: 3 }) {
 
 // What a wire end dropped on `el` at world point `pt` refers to.
 function targetAt(el, pt) {
-  // A label stands for what it labels (a wire's line or a bundle).
+  // A label stands for what it labels (a wire's line).
   if (el?.dataset.kind === 'label') return targetAt(el.parentElement?.closest('[data-kind]'), pt);
   const kind = el?.dataset.kind;
   const id = el?.dataset.id;
@@ -551,9 +572,10 @@ async function finishWire(from, to) {
   const known = targetWire(from) || targetWire(to);
   // Branching from (or joining) a wire's line can only continue that wire.
   const branchOf = (onWire(from) && targetWire(from)) || (onWire(to) && targetWire(to));
-  const answer = from.pull ? { name: from.pull } : branchOf ? { name: branchOf.name } : await askWire(known ? known.name : '');
+  const answer = from.pull ? { name: from.pull } : branchOf ? { name: branchOf.name } : await askWire(known ? known.name : '', { from, to });
   if (!answer) return;
-  const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from, to, wire: { ...answer, universal: answer.universal === 'on' } });
+  const pins = { from: answer.pinFrom, to: answer.pinTo };
+  const r = commit({ type: 'drawSegment', sheetId: currentSheet(), from, to, pins, wire: { ...answer, universal: answer.universal === 'on' } });
   if (r) {
     selection = { kind: 'segment', id: r.id };
     render();
@@ -672,8 +694,8 @@ function startSelect(el, pt) {
     render();
     if (double) askNote(n);
   } else if (kind === 'label') {
-    // Drag a wire's or bundle's label somewhere easier to read; a click on a
-    // wire's label opens its info.
+    // Drag a wire's label somewhere easier to read; a click on it opens the
+    // wire's info.
     const { of } = el.dataset;
     const item = of === 'bundle' ? byId(doc.bundles, id) : byId(doc.segments, id);
     selection = { kind: of === 'bundle' ? 'bundle' : 'segment', id };
@@ -773,8 +795,8 @@ function dragCommand(d, pt, e) {
 
 // What the hover preview would show for the thing under the pointer: a box
 // ("p:<placement id>") or a bundle ("b:<bundle id>"). Only each one's preview
-// zone counts (a box's inner area, a bundle's label), so wiring near edges,
-// the i button and taps never opens a preview.
+// zone counts (a box's inner area, a bundle's line), so wiring near box
+// edges or at taps never opens a preview.
 function hoveredBox(e) {
   if (!e.target.closest?.('.peek')) return null;
   const box = e.target.closest('[data-kind="placement"]');
@@ -850,6 +872,7 @@ svg.addEventListener('pointerdown', (e) => {
 
 svg.addEventListener('pointermove', (e) => {
   const pt = toWorld(e);
+  hoverAt = { x: e.clientX, y: e.clientY };
   if (!drag) {
     // No previews while something is selected (they'd cover what you're working on).
     hoverPreview.hover(tool === 'select' && !e.buttons && !spaceDown && !selection ? hoveredBox(e) : null);

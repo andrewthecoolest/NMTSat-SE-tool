@@ -24,7 +24,11 @@ export function describeNode(doc, node) {
   return { name: `${byId(doc.objects, via?.subsystemId)?.name ?? '?'} (open via)`, unresolved: true };
 }
 
-// conn-in and conn-out for a module, aggregated over all its placements.
+// The end of a segment that is at module `me` (a graph node), if either is.
+const endAt = (doc, e, me) => (e.a === me ? e.seg.from : e.b === me ? e.seg.to : null);
+
+// conn-in and conn-out for a module, aggregated over all its placements. Each
+// entry carries the pin name at this module's end, when it has one.
 export function connections(doc, objectId) {
   const me = 'm:' + objectId;
   const result = { in: [], out: [] };
@@ -35,9 +39,10 @@ export function connections(doc, objectId) {
     if (wire.universal) {
       const nodes = new Set(edges.flatMap((e) => [e.a, e.b]));
       if (!nodes.has(me)) continue;
+      const pin = [...new Set(edges.map((e) => endAt(doc, e, me)?.pin).filter(Boolean))].join(', ') || undefined;
       for (const node of nodes) {
         if (node === me || !(node.startsWith('m:') || node.startsWith('u:'))) continue;
-        const entry = { wire, ...describeNode(doc, node), universal: true };
+        const entry = { wire, ...describeNode(doc, node), universal: true, pin };
         result.in.push(entry);
         result.out.push(entry);
       }
@@ -48,14 +53,35 @@ export function connections(doc, objectId) {
       if (e.a !== me && e.b !== me) continue;
       const downstream = e.a === me;
       const dir = !directed ? 'any' : downstream ? 'down' : 'up';
+      const pin = endAt(doc, e, me).pin;
       for (const node of terminals(edges, downstream ? e.b : e.a, me, dir)) {
-        const entry = { wire, ...describeNode(doc, node) };
+        const entry = { wire, ...describeNode(doc, node), pin };
         if (!directed || !downstream) result.in.push(entry);
         if (!directed || downstream) result.out.push(entry);
       }
     }
   }
   return result;
+}
+
+// Every wire end at a module (any of its placements), for naming pins:
+// { segment, end ('from' | 'to'), wire, pin, arrow, toward (names past vias and bundles) }.
+export function moduleEnds(doc, objectId) {
+  const me = 'm:' + objectId;
+  const ends = [];
+  for (const wire of doc.wires) {
+    const edges = wireEdges(doc, wire.id);
+    const directed = wire.direction === 'directed';
+    for (const e of edges) {
+      const ep = endAt(doc, e, me);
+      if (!ep) continue;
+      const end = e.a === me ? 'from' : 'to';
+      const dir = !directed ? 'any' : end === 'from' ? 'down' : 'up';
+      const toward = terminals(edges, end === 'from' ? e.b : e.a, me, dir).map((n) => describeNode(doc, n).name);
+      ends.push({ segment: e.seg, end, wire, pin: ep.pin, arrow: !directed ? '↔' : end === 'from' ? '→' : '←', toward: toward.join(', ') });
+    }
+  }
+  return ends;
 }
 
 // A via is open when nothing continues on one of its sides.

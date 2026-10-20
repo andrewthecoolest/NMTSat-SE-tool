@@ -87,6 +87,8 @@ main { position: relative; flex: 1; overflow: hidden; }
 #panel .row { display: flex; gap: 8px; align-items: center; }
 #panel .row input:not([type="color"]) { flex: 1; }
 #panel .name { font-weight: bold; }
+#panel .pin-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+#panel .pin { width: 16ch; }
 #panel .description { min-height: 40vh; }
 #panel .orient { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; padding: 8px; background: #f9fafb; border: 1px solid var(--line); }
 #panel .orient p { flex-basis: 100%; }
@@ -105,6 +107,7 @@ main { position: relative; flex: 1; overflow: hidden; }
 dialog .rich-content { min-height: 120px; max-height: 50vh; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
 
 .field { display: block; margin-bottom: 8px; }
+.field[hidden] { display: none; }
 .check { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; font-size: 13px; }
 .field span { display: block; font-size: 12px; color: var(--muted); }
 .field input:not([type="color"]), .field textarea, .field select { width: 100%; font: inherit; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 4px; }
@@ -135,13 +138,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .box.subsystem .body { stroke-dasharray: 5 4; }
 .box.selected .body { stroke-width: 3; }
 .box .label { font-size: 13px; text-anchor: middle; dominant-baseline: central; fill: var(--ink); pointer-events: none; }
-/* Hover-preview zones: a box's inner area and a bundle's label pill. With the
-   Select tool the zone is outlined faintly while the box is hovered. */
+/* Hover-preview zones: a box's inner area and a bundle's whole line. With the
+   Select tool a box's zone is outlined faintly while the box is hovered. */
 .peek { fill: transparent; stroke: none; }
 #canvas[data-tool="select"] .peek { cursor: zoom-in; }
 #canvas[data-tool="select"] .box:hover .peek { stroke: #94a3b8; stroke-opacity: 0.45; stroke-dasharray: 3 3; }
-.bundle-pill { fill: #fff; stroke: #cbd5e1; }
-#canvas[data-tool="select"] .bundle:hover .bundle-pill { stroke: #94a3b8; }
 .handle { fill: #fff; stroke: var(--ink); cursor: nwse-resize; }
 .port circle { fill: #fff; stroke-width: 2; }
 
@@ -151,9 +152,9 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .wire.universal .wire-label { font-style: italic; }
 .junction circle { stroke: #fff; stroke-width: 1.5; }
 .wire-ghost .ghost-junction { stroke: #fff; stroke-width: 1.5; }
+.pin-label { font-size: 9.5px; fill: #475569; paint-order: stroke; stroke: #fff; stroke-width: 2.5px; pointer-events: none; }
 .wire-label { font-size: 11px; text-anchor: middle; paint-order: stroke; stroke: #fff; stroke-width: 3px; }
 #canvas[data-tool="select"] .wire-label { cursor: move; }
-#canvas[data-tool="select"] .bundle-pill { cursor: move; }
 /* Legend lines: plain colored lines with a caption (not wires). */
 .legend-line .hit { stroke: transparent; stroke-width: 12; }
 .legend-line .stroke { stroke-width: 3; stroke-linecap: round; pointer-events: none; }
@@ -224,12 +225,12 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.15); }
 .wire-ghost .ghost-target { fill: none; stroke-width: 2; stroke-opacity: 0.5; rx: 3; }
 /* Bundles: a thicker two-tone line with capped ends; taps mark where wires go in or out. */
 .bundle .hit { fill: none; stroke: transparent; stroke-width: 18; }
-.bundle .outer { fill: none; stroke: #475569; stroke-width: 9; stroke-linejoin: round; }
+.bundle .outer { fill: none; stroke: #475569; stroke-width: 9; stroke-linejoin: round; pointer-events: none; }
+.bundle .highlight { fill: none; stroke-width: 24; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
 .bundle .inner { fill: none; stroke: #e2e8f0; stroke-width: 4; stroke-linejoin: round; pointer-events: none; }
 .bundle .cap { stroke: #475569; stroke-width: 3; pointer-events: none; }
 .bundle.selected .outer, .bundle.selected .cap { stroke: #1e293b; }
 .bundle.selected .outer { stroke-width: 11; }
-.bundle-label { font-size: 11px; text-anchor: middle; fill: #475569; paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none; }
 .bundle-via { fill: #fff; stroke: #475569; stroke-width: 3; }
 .bundle-via-label { font-size: 11px; text-anchor: middle; fill: #475569; paint-order: stroke; stroke: #fff; stroke-width: 3px; pointer-events: none; }
 .tap { cursor: grab; }
